@@ -21,7 +21,7 @@ find_package(GTest CONFIG REQUIRED)
 
 ##############################################################################
 # FIXME: Move unit and integration tests to their separate sub folders
-add_executable(multipass_integration_tests)
+add_executable(multipass_integration_tests common.cpp temp_dir.cpp)
 target_link_libraries(multipass_integration_tests
   PRIVATE
   GTest::gmock_main
