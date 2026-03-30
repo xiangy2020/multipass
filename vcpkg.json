@@ -19,7 +19,8 @@
                 "dbus"
             ]
         },
-        "xz-embedded"
+        "xz-embedded",
+        "premock"
     ],
     "overrides": [
         {
