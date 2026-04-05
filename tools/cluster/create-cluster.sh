@@ -321,12 +321,12 @@ configure_hosts() {
     # 向每个节点注入 hosts 条目
     for name in "${node_names[@]}"; do
         log_info "配置节点 ${CYAN}${name}${NC} 的 /etc/hosts"
-        multipass exec "$name" -- bash -c "
+        multipass exec "$name" -- sudo bash -c "
             # 删除旧的集群条目（如果存在）
-            sed -i '/# multipass-cluster-start/,/# multipass-cluster-end/d' /etc/hosts
+            grep -v '# multipass-cluster' /etc/hosts > /tmp/hosts.tmp && mv /tmp/hosts.tmp /etc/hosts
             # 追加新的集群条目
             printf '\n# multipass-cluster-start\n${hosts_entries}# multipass-cluster-end\n' >> /etc/hosts
-        " 2>/dev/null || log_warn "节点 ${name} hosts 配置失败（可能需要手动配置）"
+        " || log_warn "节点 ${name} hosts 配置失败（可能需要手动配置）"
     done
     log_success "主机名解析配置完成"
 }
