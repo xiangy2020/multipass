@@ -272,7 +272,7 @@ get_node_ips() {
     local ip_file
     ip_file=$(mktemp)
 
-    log_step "获取节点 IP 地址"
+    log_step "获取节点 IP 地址" >&2
     for name in "${node_names[@]}"; do
         local ip=""
         # 等待 IP 分配（最多重试 30 次）
@@ -286,12 +286,12 @@ get_node_ips() {
             sleep 2
         done
         if [[ -z "$ip" || "$ip" == "-" ]]; then
-            log_warn "无法获取节点 ${name} 的 IP 地址"
+            log_warn "无法获取节点 ${name} 的 IP 地址" >&2
             ip="<unknown>"
         fi
         # 直接写入临时文件（避免 bash 3.x 不支持的关联数组）
         echo "${name}=${ip}" >> "$ip_file"
-        log_info "节点 ${CYAN}${name}${NC}: ${ip}"
+        log_info "节点 ${CYAN}${name}${NC}: ${ip}" >&2
     done
 
     echo "$ip_file"
