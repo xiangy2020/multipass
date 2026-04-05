@@ -1,0 +1,32 @@
+#cloud-config
+# 麒麟（OpenKylin）cloud-init 配置
+# 适用于 OpenKylin V10 GenericCloud 镜像
+# 默认用户：kylin 或 openkylin
+
+# 磁盘自动扩容
+growpart:
+    mode: auto
+    devices: ["/"]
+    ignore_growroot_disabled: false
+
+# 主机名解析
+manage_etc_hosts: true
+
+# 默认用户配置
+users:
+    - default
+
+# 配置国内镜像源（国内用户可取消注释以加速软件安装）
+# 使用方法：multipass launch kylin --cloud-init cloud-init-kylin.yaml
+#
+# runcmd:
+#   - |
+#     # 备份原有 apt 源
+#     cp /etc/apt/sources.list /etc/apt/sources.list.bak
+#     # 配置阿里云镜像源（OpenKylin）
+#     cat > /etc/apt/sources.list << 'EOF'
+#     deb https://mirrors.aliyun.com/openkylin/ yangtze main restricted universe multiverse
+#     deb https://mirrors.aliyun.com/openkylin/ yangtze-security main restricted universe multiverse
+#     deb https://mirrors.aliyun.com/openkylin/ yangtze-updates main restricted universe multiverse
+#     EOF
+#     apt-get update

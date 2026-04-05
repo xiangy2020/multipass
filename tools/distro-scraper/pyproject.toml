@@ -21,6 +21,9 @@ distro-scraper = "scraper.cli:main"
 [project.entry-points."dist_scraper.scrapers"]
 debian = "scraper.scrapers.debian:DebianScraper"
 fedora = "scraper.scrapers.fedora:FedoraScraper"
+centos = "scraper.scrapers.centos:CentOSScraper"
+tencentos = "scraper.scrapers.tencentos:TencentOSScraper"
+kylin = "scraper.scrapers.kylin:KylinScraper"
 
 [tool.setuptools.packages.find]
 where = ["."]

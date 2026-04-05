@@ -58,5 +58,68 @@
         "release": "",
         "release_codename": "43",
         "release_title": "43"
+    },
+    "CentOS": {
+        "aliases": "centos, centos-stream",
+        "items": {
+            "arm64": {
+                "id": "4b682f7219bc62ab3991a1df181f55d5b726e6d119236dafc9203a8395148cde",
+                "image_location": "https://cloud.centos.org/centos/9-stream/aarch64/images/CentOS-Stream-GenericCloud-9-20260331.0.aarch64.qcow2",
+                "size": 1525481472,
+                "version": "20260331"
+            },
+            "x86_64": {
+                "id": "a69e8c84ae21af5743b96b23e66760a6ab15f8814b6b6fec6840e4b6e07933c9",
+                "image_location": "https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-20260331.0.x86_64.qcow2",
+                "size": 1893392896,
+                "version": "20260331"
+            }
+        },
+        "os": "CentOS",
+        "release": "9-stream",
+        "release_codename": "Stream 9",
+        "release_title": "9"
+    },
+    "TencentOS": {
+        "aliases": "tencentos, tlinux",
+        "items": {
+            "arm64": {
+                "id": "placeholder-tencentos-3-aarch64",
+                "image_location": "https://mirrors.tencent.com/tlinux/3.2/images/aarch64/TencentOS-Server-3.2-GenericCloud-aarch64.qcow2",
+                "size": -1,
+                "version": "3.2"
+            },
+            "x86_64": {
+                "id": "placeholder-tencentos-3-x86_64",
+                "image_location": "https://mirrors.tencent.com/tlinux/3.2/images/x86_64/TencentOS-Server-3.2-GenericCloud-x86_64.qcow2",
+                "size": -1,
+                "version": "3.2"
+            }
+        },
+        "os": "TencentOS",
+        "release": "3.2",
+        "release_codename": "TencentOS Server 3.2",
+        "release_title": "3"
+    },
+    "Kylin": {
+        "aliases": "kylin, kylinv10",
+        "items": {
+            "arm64": {
+                "id": "placeholder-kylin-v10-aarch64",
+                "image_location": "https://mirrors.aliyun.com/openkylin/project/kylin-v10-sp3-cloud-aarch64.qcow2",
+                "size": -1,
+                "version": "V10SP3"
+            },
+            "x86_64": {
+                "id": "placeholder-kylin-v10-x86_64",
+                "image_location": "https://mirrors.aliyun.com/openkylin/project/kylin-v10-sp3-cloud-x86_64.qcow2",
+                "size": -1,
+                "version": "V10SP3"
+            }
+        },
+        "os": "Kylin",
+        "release": "V10",
+        "release_codename": "Kylin V10 SP3",
+        "release_title": "V10"
     }
 }

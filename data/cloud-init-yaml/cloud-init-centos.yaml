@@ -1,0 +1,30 @@
+#cloud-config
+# CentOS Stream cloud-init 配置
+# 适用于 CentOS Stream 9 GenericCloud 镜像
+# 默认用户：centos（部分镜像为 cloud-user）
+
+# 磁盘自动扩容
+growpart:
+    mode: auto
+    devices: ["/"]
+    ignore_growroot_disabled: false
+
+# 主机名解析
+manage_etc_hosts: true
+
+# 默认用户配置
+users:
+    - default
+
+# 配置腾讯软件源（国内用户可取消注释以加速软件安装）
+# 使用方法：multipass launch centos --cloud-init cloud-init-centos.yaml
+#
+# runcmd:
+#   - |
+#     # 备份原有 yum 源
+#     mkdir -p /etc/yum.repos.d/backup
+#     mv /etc/yum.repos.d/CentOS-*.repo /etc/yum.repos.d/backup/ 2>/dev/null || true
+#     # 配置腾讯软件源
+#     curl -o /etc/yum.repos.d/CentOS-Base.repo \
+#       https://mirrors.tencent.com/repo/centos9_base.repo
+#     yum clean all && yum makecache

@@ -1,0 +1,43 @@
+#cloud-config
+# TencentOS（TLinux）cloud-init 配置
+# 适用于 TencentOS Server 3.x GenericCloud 镜像
+# 默认用户：tencentos 或 root
+
+# 磁盘自动扩容
+growpart:
+    mode: auto
+    devices: ["/"]
+    ignore_growroot_disabled: false
+
+# 主机名解析
+manage_etc_hosts: true
+
+# 默认用户配置
+users:
+    - default
+
+# 配置腾讯软件源（TencentOS 推荐使用腾讯内部软件源）
+# 使用方法：multipass launch tencentos --cloud-init cloud-init-tencentos.yaml
+runcmd:
+    - |
+        # 配置腾讯软件源（mirrors.tencent.com）
+        # tlinux3.2 x86_64
+        ARCH=$(uname -m)
+        VERSION_ID=$(. /etc/os-release && echo "$VERSION_ID")
+        MAJOR_VERSION=$(echo "$VERSION_ID" | cut -d. -f1)
+
+        if [ "$MAJOR_VERSION" = "3" ]; then
+            mkdir -p /etc/yum.repos.d/backup
+            mv /etc/yum.repos.d/*.repo /etc/yum.repos.d/backup/ 2>/dev/null || true
+
+            if [ "$ARCH" = "x86_64" ]; then
+                rpm -ivh --force \
+                    "https://mirrors.tencent.com/tlinux/${VERSION_ID}/Updates/${ARCH}/RPMS/tencentos-release-${VERSION_ID}-4.tl3.${ARCH}.rpm" \
+                    2>/dev/null || true
+            elif [ "$ARCH" = "aarch64" ]; then
+                rpm -ivh --force \
+                    "https://mirrors.tencent.com/tlinux/${VERSION_ID}/Updates/${ARCH}/RPMS/tencentos-release-${VERSION_ID}-4.tl3.${ARCH}.rpm" \
+                    2>/dev/null || true
+            fi
+            yum clean all && yum makecache
+        fi
