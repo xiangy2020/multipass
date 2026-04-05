@@ -16,6 +16,45 @@ manage_etc_hosts: true
 users:
     - default
 
+# 启用 SSH 密码认证
+ssh_pwauth: true
+
+# 设置用户初始密码
+# root 密码：root，centos 用户密码：centos
+chpasswd:
+    expire: false
+    list:
+        - root:root
+        - centos:centos
+
+# 写入安全警告和 SSH 配置
+write_files:
+    - path: /etc/motd
+      content: |
+        ============================================================
+        警告：此实例使用了默认密码，存在安全风险！
+        WARNING: This instance uses default passwords, security risk!
+
+        默认凭据 / Default credentials:
+          root    密码/password: root
+          centos  密码/password: centos
+
+        请立即修改密码 / Please change passwords immediately:
+          passwd root
+          passwd centos
+        ============================================================
+      permissions: '0644'
+    - path: /etc/ssh/sshd_config.d/99-multipass-centos.conf
+      content: |
+        # Multipass CentOS 默认 SSH 配置
+        PermitRootLogin yes
+        PasswordAuthentication yes
+      permissions: '0600'
+
+# 重启 sshd 使配置生效
+runcmd:
+    - systemctl restart sshd || systemctl restart ssh
+
 # 配置腾讯软件源（国内用户可取消注释以加速软件安装）
 # 使用方法：multipass launch centos --cloud-init cloud-init-centos.yaml
 #

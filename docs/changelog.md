@@ -4,6 +4,36 @@
 
 ### 新增
 
+#### CentOS 实例 Root 密码登录支持
+
+CentOS 实例现在支持通过 root 密码直接登录，无需配置 SSH 密钥：
+
+- **自动注入密码配置**：`multipass launch centos` 启动的实例会自动通过 cloud-init vendor config 配置密码登录
+- **默认凭据**：`root` 用户密码为 `root`，`centos` 用户密码为 `centos`
+- **SSH 密码认证**：自动启用 `PasswordAuthentication yes` 和 `PermitRootLogin yes`
+- **安全警告**：登录后 `/etc/motd` 会显示安全提示，建议立即修改默认密码
+- **兼容性**：SSH 密钥登录方式保持不变，`multipass shell` 命令正常工作
+
+**使用示例：**
+
+```bash
+# 启动 CentOS 实例
+multipass launch centos --name my-centos
+
+# 获取实例 IP
+multipass info my-centos
+
+# 使用 root 密码登录（密码：root）
+ssh root@<instance-ip>
+
+# 使用 centos 用户密码登录（密码：centos）
+ssh centos@<instance-ip>
+```
+
+> ⚠️ **安全提示**：默认密码仅用于开发调试环境，生产环境请立即修改密码。
+
+---
+
 #### 国内主流 Linux 发行版镜像支持
 
 新增对以下三个发行版的镜像支持，用户可通过 `multipass launch <alias>` 直接启动：

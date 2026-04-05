@@ -160,7 +160,8 @@ auto make_cloud_init_vendor_config(const mp::SSHKeyProvider& key_provider,
 
     // Pollinate is not available as a RPM package and also dependencies that are inherent to
     // Ubuntu/Debian systems
-    if (request->image() != "fedora")
+    const auto& image_name = request->image();
+    if (image_name != "fedora" && image_name != "centos" && image_name != "centos-stream")
     {
         config["packages"].push_back("pollinate");
 
@@ -179,6 +180,51 @@ auto make_cloud_init_vendor_config(const mp::SSHKeyProvider& key_provider,
         pollinate_user_agent_node["content"] = pollinate_user_agent_string;
 
         config["write_files"].push_back(pollinate_user_agent_node);
+    }
+
+    // CentOS 镜像默认禁用密码登录，通过 vendor config 注入密码认证配置
+    // 允许 root 和默认用户（centos）通过密码登录，方便开发调试
+    if (image_name == "centos" || image_name == "centos-stream")
+    {
+        // 启用 SSH 密码认证
+        config["ssh_pwauth"] = true;
+
+        // 设置初始密码：root 密码为 "root"，centos 用户密码为 "centos"
+        config["chpasswd"]["expire"] = false;
+        config["chpasswd"]["list"].push_back("root:root");
+        config["chpasswd"]["list"].push_back(username + ":" + username);
+
+        // 写入 sshd 配置文件，允许 root 登录并启用密码认证
+        YAML::Node sshd_config_node;
+        sshd_config_node["path"] = "/etc/ssh/sshd_config.d/99-multipass-centos.conf";
+        sshd_config_node["content"] =
+            "# Multipass CentOS 默认 SSH 配置\n"
+            "PermitRootLogin yes\n"
+            "PasswordAuthentication yes\n";
+        sshd_config_node["permissions"] = "0600";
+        config["write_files"].push_back(sshd_config_node);
+
+        // 写入安全警告到 /etc/motd
+        YAML::Node motd_node;
+        motd_node["path"] = "/etc/motd";
+        motd_node["content"] =
+            "============================================================\n"
+            "警告：此实例使用了默认密码，存在安全风险！\n"
+            "WARNING: This instance uses default passwords, security risk!\n"
+            "\n"
+            "默认凭据 / Default credentials:\n"
+            "  root    密码/password: root\n"
+            "  centos  密码/password: centos\n"
+            "\n"
+            "请立即修改密码 / Please change passwords immediately:\n"
+            "  passwd root\n"
+            "  passwd centos\n"
+            "============================================================\n";
+        motd_node["permissions"] = "0644";
+        config["write_files"].push_back(motd_node);
+
+        // 重启 sshd 使配置生效
+        config["runcmd"].push_back("systemctl restart sshd || systemctl restart ssh");
     }
 
     return config;
