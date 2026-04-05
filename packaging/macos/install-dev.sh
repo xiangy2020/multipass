@@ -160,6 +160,17 @@ ENTITLEMENTS_EOF
     info "已完成签名: qemu-system-aarch64"
 fi
 
+# ── 拷贝自定义发行版镜像元数据 ──────────────────────────
+DIST_INFO_SRC="$SCRIPT_DIR/../../data/distributions/distribution-info.json"
+DIST_INFO_DEST="${INSTALL_PREFIX}/distribution-info.json"
+if [ -f "$DIST_INFO_SRC" ]; then
+    cp "$DIST_INFO_SRC" "$DIST_INFO_DEST"
+    chmod 644 "$DIST_INFO_DEST"
+    info "已安装: distribution-info.json"
+else
+    warn "跳过（不存在）: $DIST_INFO_SRC"
+fi
+
 # ── 设置目录和文件所有权 ──────────────────────────────────
 chown -R root:wheel "$INSTALL_PREFIX"
 chown root:wheel "$INSTALL_BIN/multipassd"
@@ -178,6 +189,8 @@ cat > "$PLIST_DEST" << EOF
     <dict>
       <key>PATH</key>
       <string>${INSTALL_BIN}:/usr/bin:/bin:/usr/sbin:/sbin</string>
+      <key>MULTIPASS_DISTRIBUTIONS_URL</key>
+      <string>file://${INSTALL_PREFIX}/distribution-info.json</string>
     </dict>
 
     <key>ProgramArguments</key>
