@@ -8,8 +8,11 @@ from ..models import SUPPORTED_ARCHITECTURES
 # CentOS Stream 官方 Cloud 镜像站
 CENTOS_CLOUD_BASE = "https://cloud.centos.org/centos/"
 
-# CentOS Stream 版本（当前最新稳定版）
-CENTOS_STREAM_VERSION = "9"
+# 支持的 CentOS Stream 版本列表（从新到旧，第一个为默认版本）
+CENTOS_STREAM_VERSIONS = ["9", "8"]
+
+# 默认版本（centos / centos-stream 别名指向此版本）
+CENTOS_DEFAULT_VERSION = "9"
 
 # 架构映射：multipass 架构名 -> CentOS 目录架构名
 ARCH_MAP = {
@@ -19,7 +22,6 @@ ARCH_MAP = {
 
 # 仅支持这两种架构
 CENTOS_SUPPORTED_ARCHES = {"x86_64", "arm64"}
-
 
 class CentOSScraper(BaseScraper):
     def __init__(self):
@@ -100,41 +102,67 @@ class CentOSScraper(BaseScraper):
             "size": size,
         }
 
-    async def fetch(self) -> dict:
+    async def _fetch_version(self, session: aiohttp.ClientSession, version: str) -> dict:
         """
-        抓取 CentOS Stream 最新 Cloud 镜像信息（x86_64 / arm64）。
+        抓取指定版本的 CentOS Stream 所有架构镜像信息，返回单个版本的条目字典。
         """
-        version = CENTOS_STREAM_VERSION
+        results = await asyncio.gather(
+            *[
+                self._fetch_image_for_arch(session, version, label)
+                for label in SUPPORTED_ARCHITECTURES
+                if label in CENTOS_SUPPORTED_ARCHES
+            ],
+            return_exceptions=True,
+        )
 
+        items: dict[str, dict] = {}
+        for label, result in zip(
+            [l for l in SUPPORTED_ARCHITECTURES if l in CENTOS_SUPPORTED_ARCHES],
+            results,
+        ):
+            if isinstance(result, Exception):
+                self.logger.warning("获取 CentOS Stream %s %s 架构镜像失败: %s", version, label, result)
+            else:
+                _, data = result
+                items[label] = data
+
+        if not items:
+            raise RuntimeError(f"所有架构的 CentOS Stream {version} 镜像均获取失败")
+
+        # 默认版本使用通用别名，其他版本使用版本化别名
+        if version == CENTOS_DEFAULT_VERSION:
+            aliases = f"centos, centos-stream, centos:{version}, centos-stream:{version}"
+        else:
+            aliases = f"centos:{version}, centos-stream:{version}"
+
+        return {
+            "aliases": aliases,
+            "os": "CentOS",
+            "release": f"{version}-stream",
+            "release_codename": f"Stream {version}",
+            "release_title": version,
+            "items": items,
+        }
+
+    async def fetch(self) -> dict | list:
+        """
+        抓取所有支持版本的 CentOS Stream Cloud 镜像信息，返回多版本条目列表。
+        """
         async with aiohttp.ClientSession() as session:
-            results = await asyncio.gather(
-                *[
-                    self._fetch_image_for_arch(session, version, label)
-                    for label in SUPPORTED_ARCHITECTURES
-                    if label in CENTOS_SUPPORTED_ARCHES
-                ],
+            version_results = await asyncio.gather(
+                *[self._fetch_version(session, version) for version in CENTOS_STREAM_VERSIONS],
                 return_exceptions=True,
             )
 
-            items: dict[str, dict] = {}
-            for label, result in zip(
-                [l for l in SUPPORTED_ARCHITECTURES if l in CENTOS_SUPPORTED_ARCHES],
-                results,
-            ):
-                if isinstance(result, Exception):
-                    self.logger.warning("获取 CentOS %s 架构镜像失败: %s", label, result)
-                else:
-                    _, data = result
-                    items[label] = data
+        entries = []
+        for version, result in zip(CENTOS_STREAM_VERSIONS, version_results):
+            if isinstance(result, Exception):
+                self.logger.warning("获取 CentOS Stream %s 失败: %s", version, result)
+            else:
+                entries.append(result)
+                self.logger.info("CentOS Stream %s 抓取成功", version)
 
-            if not items:
-                raise RuntimeError("所有架构的 CentOS Stream 镜像均获取失败")
+        if not entries:
+            raise RuntimeError("所有版本的 CentOS Stream 镜像均获取失败")
 
-            return {
-                "aliases": "centos, centos-stream",
-                "os": "CentOS",
-                "release": f"{version}-stream",
-                "release_codename": f"Stream {version}",
-                "release_title": version,
-                "items": items,
-            }
+        return entries

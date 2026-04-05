@@ -59,8 +59,29 @@
         "release_codename": "43",
         "release_title": "43"
     },
-    "CentOS": {
-        "aliases": "centos, centos-stream",
+    "CentOS8": {
+        "aliases": "centos:8, centos-stream:8",
+        "items": {
+            "arm64": {
+                "id": "bccfa4a9958e42a1977640c22a9fbe7503ef573debc7c576a0a83953557abec5",
+                "image_location": "https://cloud.centos.org/centos/8-stream/aarch64/images/CentOS-Stream-GenericCloud-8-20240603.0.aarch64.qcow2",
+                "size": 1853685760,
+                "version": "20240603"
+            },
+            "x86_64": {
+                "id": "44e9c9adf2e70906ae4731f7f62355ef79bcc582c93edadce522edffb4b4df85",
+                "image_location": "https://cloud.centos.org/centos/8-stream/x86_64/images/CentOS-Stream-GenericCloud-8-20240603.0.x86_64.qcow2",
+                "size": 2003698688,
+                "version": "20240603"
+            }
+        },
+        "os": "CentOS",
+        "release": "8-stream",
+        "release_codename": "Stream 8",
+        "release_title": "8"
+    },
+    "CentOS9": {
+        "aliases": "centos, centos-stream, centos:9, centos-stream:9",
         "items": {
             "arm64": {
                 "id": "4b682f7219bc62ab3991a1df181f55d5b726e6d119236dafc9203a8395148cde",

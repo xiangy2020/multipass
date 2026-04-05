@@ -95,12 +95,16 @@ def write_output_file(output: dict, path: pathlib.Path) -> None:
     logger.info("Output written to %s", path)
 
 
-async def run_scraper(scraper_instance: BaseScraper) -> tuple[str, dict | None]:
+async def run_scraper(scraper_instance: BaseScraper) -> tuple[str, dict[str, dict] | None]:
     """
     Run a single scraper.fetch and capture exceptions.
+
+    Returns a tuple of (scraper_name, entries_dict) where entries_dict maps
+    distribution keys to their validated data. A scraper may return a single
+    dict (one distribution) or a list of dicts (multiple distributions, e.g.
+    multiple versions of the same OS).
     """
     name = scraper_instance.name
-    result = None
 
     try:
         result = await scraper_instance.fetch()
@@ -108,17 +112,36 @@ async def run_scraper(scraper_instance: BaseScraper) -> tuple[str, dict | None]:
         logger.exception("Scraper '%s' failed: %s", name, e)
         return name, None
 
-    # Validate JSON structure
-    try:
-        validated = ScraperResult(**result)
-        logger.info("Scraper '%s' succeeded", name)
-        return name, validated.model_dump()
-    except ValidationError as e:
-        logger.error("Scraper '%s' returned invalid structure:\n%s", name, e)
-    except Exception as e:
-        logger.exception("Unexpected error validating scraper '%s': %s", name, e)
+    # Normalize to list for uniform processing
+    if isinstance(result, dict):
+        result_list = [(name, result)]
+    elif isinstance(result, list):
+        # Each item in the list should have a 'release_title' to form a unique key
+        result_list = []
+        for item in result:
+            version = item.get("release_title", "")
+            key = f"{name}{version}" if version else name
+            result_list.append((key, item))
+    else:
+        logger.error("Scraper '%s' returned unexpected type: %s", name, type(result))
+        return name, None
 
-    return name, None
+    # Validate each entry
+    entries: dict[str, dict] = {}
+    for key, data in result_list:
+        try:
+            validated = ScraperResult(**data)
+            entries[key] = validated.model_dump()
+            logger.info("Scraper '%s' entry '%s' succeeded", name, key)
+        except ValidationError as e:
+            logger.error("Scraper '%s' entry '%s' returned invalid structure:\n%s", name, key, e)
+        except Exception as e:
+            logger.exception("Unexpected error validating scraper '%s' entry '%s': %s", name, key, e)
+
+    if not entries:
+        return name, None
+
+    return name, entries
 
 
 async def run_all_scrapers(output_file: pathlib.Path) -> None:
@@ -136,7 +159,8 @@ async def run_all_scrapers(output_file: pathlib.Path) -> None:
     failed_scrapers = []
     for name, data in completed:
         if data:
-            output[name] = data
+            # data is now a dict[str, dict] mapping keys to distribution entries
+            output.update(data)
         else:
             failed_scrapers.append(name)
 

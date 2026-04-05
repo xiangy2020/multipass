@@ -161,7 +161,10 @@ auto make_cloud_init_vendor_config(const mp::SSHKeyProvider& key_provider,
     // Pollinate is not available as a RPM package and also dependencies that are inherent to
     // Ubuntu/Debian systems
     const auto& image_name = request->image();
-    if (image_name != "fedora" && image_name != "centos" && image_name != "centos-stream")
+    // centos 系列（centos、centos-stream、centos:8、centos:9 等）均不支持 pollinate
+    const bool is_centos = image_name == "centos" || image_name.starts_with("centos:") ||
+                           image_name == "centos-stream" || image_name.starts_with("centos-stream:");
+    if (image_name != "fedora" && !is_centos)
     {
         config["packages"].push_back("pollinate");
 
@@ -182,9 +185,9 @@ auto make_cloud_init_vendor_config(const mp::SSHKeyProvider& key_provider,
         config["write_files"].push_back(pollinate_user_agent_node);
     }
 
-    // CentOS 镜像默认禁用密码登录，通过 vendor config 注入密码认证配置
+    // CentOS 系列镜像（含所有版本化别名）默认禁用密码登录，通过 vendor config 注入密码认证配置
     // 允许 root 和默认用户（centos）通过密码登录，方便开发调试
-    if (image_name == "centos" || image_name == "centos-stream")
+    if (is_centos)
     {
         // 启用 SSH 密码认证
         config["ssh_pwauth"] = true;
