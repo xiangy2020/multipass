@@ -210,7 +210,6 @@ runcmd:
   # 重启 SSH 服务
   - systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || true
 YAML
-        echo "$cloud_init_file"
     done
 
     echo "$tmp_dir"
@@ -447,9 +446,8 @@ main() {
 
     # 4. 生成 cloud-init 配置
     log_step "生成 cloud-init 配置"
-    local cloud_init_files
-    mapfile -t cloud_init_files < <(generate_cloud_init "${NODE_NAMES[@]}")
-    local TMP_DIR="${cloud_init_files[-1]}"
+    local TMP_DIR
+    TMP_DIR=$(generate_cloud_init "${NODE_NAMES[@]}")
     log_success "cloud-init 配置已生成: ${TMP_DIR}"
 
     # 5. 并行启动所有节点
