@@ -135,6 +135,31 @@ for fw in $FIRMWARE_FILES; do
     fi
 done
 
+# ── 对 qemu-system-aarch64 进行代码签名 ──────────────────
+# macOS 要求 QEMU 必须持有 com.apple.security.hypervisor entitlement 才能使用 HVF 加速
+# 否则 qemu-system-aarch64 会被 Gatekeeper 拒绝执行（Process crashed）
+QEMU_BIN="$INSTALL_BIN/qemu-system-aarch64"
+if [ -f "$QEMU_BIN" ]; then
+    info "对 qemu-system-aarch64 进行代码签名..."
+    # 创建临时 entitlements 文件
+    ENTITLEMENTS_TMP="$(mktemp /tmp/qemu-entitlements.XXXXXX.plist)"
+    cat > "$ENTITLEMENTS_TMP" << 'ENTITLEMENTS_EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.hypervisor</key>
+    <true/>
+</dict>
+</plist>
+ENTITLEMENTS_EOF
+    # 清除扩展属性（避免 resource fork 错误），然后签名
+    xattr -cr "$QEMU_BIN"
+    codesign --force --sign - --entitlements "$ENTITLEMENTS_TMP" "$QEMU_BIN"
+    rm -f "$ENTITLEMENTS_TMP"
+    info "已完成签名: qemu-system-aarch64"
+fi
+
 # ── 设置目录和文件所有权 ──────────────────────────────────
 chown -R root:wheel "$INSTALL_PREFIX"
 chown root:wheel "$INSTALL_BIN/multipassd"
