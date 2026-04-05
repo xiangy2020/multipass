@@ -37,7 +37,7 @@ namespace
 {
 constexpr auto category = "custom_image_host";
 constexpr auto no_remote{""};
-constexpr auto manifest_endpoint{"https://raw.githubusercontent.com/canonical/multipass/refs/heads/"
+constexpr auto manifest_endpoint{"https://raw.githubusercontent.com/xiangy2020/multipass/refs/heads/"
                                  "main/data/distributions/distribution-info.json"};
 
 auto get_manifest_url()
