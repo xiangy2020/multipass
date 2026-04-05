@@ -1,8 +1,8 @@
 ---
 doc_name: "Multipass 构建与部署指南"
 doc_type: "技术文档"
-version: "v1.0"
-generated_at: "2026-04-05 16:29:12"
+version: "v1.1"
+generated_at: "2026-04-05 20:10:00"
 project_root: "/Users/tompyang/Documents/code/multipass"
 project_type: "general"
 project_lang: "C++"
@@ -28,6 +28,7 @@ analyzed_files:
 - [Windows 构建](#windows-构建)
 - [通用构建选项](#通用构建选项)
 - [运行守护进程与客户端](#运行守护进程与客户端)
+- [SSH 连接到虚拟机](#ssh-连接到虚拟机)
 - [打包与发布](#打包与发布)
 - [测试](#测试)
 - [开发技巧](#开发技巧)
@@ -293,13 +294,59 @@ multipass.gui
 
 ### macOS
 
+#### 方式一：使用开发版安装脚本（推荐）
+
+项目提供了一键安装脚本 `packaging/macos/install-dev.sh`，会将编译版 multipassd 注册为 launchd 系统服务，与官方安装包行为一致。
+
+```bash
+# 安装（自动查找 build/bin/multipassd）
+sudo packaging/macos/install-dev.sh
+
+# 指定二进制路径
+sudo packaging/macos/install-dev.sh -b /path/to/multipassd
+
+# 卸载
+sudo packaging/macos/install-dev.sh -u
+```
+
+重新编译后更新服务（无需重新创建 plist）：
+
+```bash
+sudo packaging/macos/install-dev.sh
+```
+
+常用服务管理命令：
+
+```bash
+# 查看日志
+tail -f /Library/Logs/Multipass/multipassd.log
+
+# 停止服务
+sudo launchctl unload /Library/LaunchDaemons/com.canonical.multipassd.plist
+
+# 重启服务
+sudo launchctl unload /Library/LaunchDaemons/com.canonical.multipassd.plist
+sudo launchctl load /Library/LaunchDaemons/com.canonical.multipassd.plist
+```
+
+> **为什么必须用 launchd 管理，而不能直接 `sudo ./multipassd` 运行？**
+> macOS 上 multipassd 需要 root 权限来创建 `/var/run/multipass_socket`，
+> 且 launchd 负责在系统启动时自动拉起并在崩溃时自动重启。
+> 直接运行虽然也能工作，但在多进程场景下可能出现 qcow2 镜像文件锁冲突。
+
+#### 方式二：直接运行（临时调试用）
+
 ```bash
 # 启动守护进程
 sudo <multipass>/build/bin/multipassd &
 
 # 使用 CLI
 <multipass>/build/bin/multipass launch
+```
 
+#### 查看日志
+
+```bash
 # 查看守护进程日志（已安装版本）
 sudo launchctl debug system/com.canonical.multipassd --stdout --stderr
 sudo launchctl kickstart -k system/com.canonical.multipassd
@@ -326,6 +373,141 @@ multipass help
 
 # 启动 GUI
 multipass.gui
+```
+
+---
+
+## SSH 连接到虚拟机
+
+Multipass 虚拟机默认开启 SSH 服务，可以通过以下几种方式连接。
+
+### 方式一：使用 multipass shell（最简单）
+
+```bash
+# 直接进入虚拟机 shell（无需 SSH 配置）
+multipass shell <实例名>
+
+# 示例
+multipass shell avid-teal
+```
+
+### 方式二：使用 multipass exec 执行单条命令
+
+```bash
+multipass exec <实例名> -- <命令>
+
+# 示例
+multipass exec avid-teal -- uname -a
+```
+
+### 方式三：原生 SSH 连接
+
+#### 1. 获取虚拟机 IP 地址
+
+```bash
+multipass info <实例名>
+# 或列出所有实例
+multipass list
+```
+
+输出示例：
+```
+Name:           avid-teal
+State:          Running
+IPv4:           192.168.252.8
+Release:        Ubuntu 22.04.5 LTS
+```
+
+#### 2. 获取 SSH 私钥
+
+Multipass 为每个实例自动生成 SSH 密钥对，私钥存放在：
+
+| 平台 | 私钥路径 |
+|------|----------|
+| macOS | `/var/root/Library/Application Support/multipassd/ssh-keys/id_rsa` |
+| Linux | `/var/snap/multipass/common/data/multipassd/ssh-keys/id_rsa` |
+| Windows | `C:\Windows\System32\config\systemprofile\AppData\Roaming\multipassd\ssh-keys\id_rsa` |
+
+#### 3. 连接虚拟机
+
+```bash
+# macOS（需要 sudo 读取私钥）
+sudo ssh -i "/var/root/Library/Application Support/multipassd/ssh-keys/id_rsa" \
+    -o StrictHostKeyChecking=no ubuntu@<虚拟机IP>
+
+# 示例
+sudo ssh -i "/var/root/Library/Application Support/multipassd/ssh-keys/id_rsa" \
+    -o StrictHostKeyChecking=no ubuntu@192.168.252.8
+```
+
+> **默认用户名**：Ubuntu 镜像的默认用户名为 `ubuntu`，无需密码（使用密钥认证）。
+
+#### 4. 配置 SSH config（可选，方便日常使用）
+
+将私钥复制到用户目录，避免每次都用 sudo：
+
+```bash
+# 复制私钥到用户目录
+sudo cp "/var/root/Library/Application Support/multipassd/ssh-keys/id_rsa" \
+    ~/.ssh/multipass_id_rsa
+sudo chown $USER ~/.ssh/multipass_id_rsa
+chmod 600 ~/.ssh/multipass_id_rsa
+```
+
+在 `~/.ssh/config` 中添加配置：
+
+```
+Host multipass-*
+    User ubuntu
+    IdentityFile ~/.ssh/multipass_id_rsa
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+
+Host avid-teal
+    HostName 192.168.252.8
+    User ubuntu
+    IdentityFile ~/.ssh/multipass_id_rsa
+    StrictHostKeyChecking no
+```
+
+之后直接连接：
+
+```bash
+ssh avid-teal
+```
+
+### 方式四：向虚拟机注入自己的公钥（推荐长期使用）
+
+在 `multipass launch` 时通过 cloud-init 注入公钥：
+
+```bash
+# 创建 cloud-init 配置文件
+cat > /tmp/cloud-init.yaml << EOF
+#cloud-config
+ssh_authorized_keys:
+  - $(cat ~/.ssh/id_rsa.pub)
+EOF
+
+# 启动时注入
+multipass launch 22.04 --cloud-init /tmp/cloud-init.yaml --name myvm
+
+# 之后直接用自己的密钥连接
+ssh ubuntu@$(multipass info myvm | grep IPv4 | awk '{print $2}')
+```
+
+### 常用 SSH 操作
+
+```bash
+# 查看所有实例的 IP
+multipass list
+
+# 端口转发（将虚拟机 8080 映射到本机 8080）
+ssh -L 8080:localhost:8080 ubuntu@<虚拟机IP> \
+    -i ~/.ssh/multipass_id_rsa -N
+
+# SCP 传输文件（也可用 multipass transfer）
+scp -i ~/.ssh/multipass_id_rsa ubuntu@<虚拟机IP>:/path/to/file ./
+multipass transfer avid-teal:/path/to/file ./
 ```
 
 ---
@@ -511,4 +693,4 @@ Enter-VsDevShell -VsInstallPath "$VSPath" -DevCmdArguments '-arch=x64'
 
 ---
 
-*文档生成时间：2026-04-05 | 版本：v1.0*
+*文档生成时间：2026-04-05 | 版本：v1.1*
