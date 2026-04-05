@@ -4,6 +4,33 @@
 
 ### 新增
 
+#### CentOS Stream 多版本支持（Stream 8 和 Stream 9）
+
+新增 CentOS Stream 8 镜像支持，并引入版本化别名，用户可通过 `centos:8` / `centos:9` 明确指定版本：
+
+- **CentOS Stream 9**（默认）：别名 `centos`、`centos-stream`、`centos:9`、`centos-stream:9`
+- **CentOS Stream 8**：别名 `centos:8`、`centos-stream:8`，使用官方 `cloud.centos.org` 镜像
+- **cloud-init 密码登录**：所有 CentOS 系列版本（含版本化别名）均自动注入 root 密码登录配置
+- **distro-scraper 扩展**：`centos.py` 支持多版本并发抓取，`cli.py` 支持 scraper 返回多条目列表
+
+**使用示例：**
+
+```bash
+# 启动默认版本（Stream 9）
+multipass launch centos
+
+# 明确指定 Stream 9
+multipass launch centos:9
+
+# 启动 Stream 8
+multipass launch centos:8
+
+# 查看所有可用版本
+multipass find
+```
+
+---
+
 #### CentOS 实例 Root 密码登录支持
 
 CentOS 实例现在支持通过 root 密码直接登录，无需配置 SSH 密钥：

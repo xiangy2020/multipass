@@ -8,7 +8,8 @@
 
 | 发行版 | 别名 | 架构 | 状态 |
 |--------|------|------|------|
-| CentOS Stream 9 | `centos`, `centos-stream` | x86_64, arm64 | ✅ 可用 |
+| CentOS Stream 9 | `centos`, `centos-stream`, `centos:9`, `centos-stream:9` | x86_64, arm64 | ✅ 可用 |
+| CentOS Stream 8 | `centos:8`, `centos-stream:8` | x86_64, arm64 | ✅ 可用 |
 | TencentOS Server 3.x | `tencentos`, `tlinux` | x86_64, arm64 | ⏳ 待官方发布 Cloud 镜像 |
 | 麒麟 V10（OpenKylin） | `kylin`, `kylinv10` | x86_64, arm64 | ⏳ 待官方发布 Cloud 镜像 |
 
@@ -16,14 +17,28 @@
 
 ## CentOS Stream
 
+### 支持的版本
+
+| 版本 | 别名 | 状态 |
+|------|------|------|
+| CentOS Stream 9（默认） | `centos`, `centos-stream`, `centos:9`, `centos-stream:9` | ✅ 可用 |
+| CentOS Stream 8 | `centos:8`, `centos-stream:8` | ✅ 可用 |
+
 ### 快速启动
 
 ```bash
-# 使用默认配置启动
+# 启动默认版本（Stream 9）
 multipass launch centos
+
+# 明确指定 Stream 9
+multipass launch centos:9
+
+# 启动 Stream 8
+multipass launch centos:8
 
 # 使用别名
 multipass launch centos-stream
+multipass launch centos-stream:8
 ```
 
 ### 配置腾讯软件源（国内用户推荐）
