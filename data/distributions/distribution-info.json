@@ -60,7 +60,7 @@
         "release_title": "43"
     },
     "CentOS8": {
-        "aliases": "centos:8, centos-stream:8",
+        "aliases": "centos8, centos-stream8",
         "items": {
             "arm64": {
                 "id": "bccfa4a9958e42a1977640c22a9fbe7503ef573debc7c576a0a83953557abec5",
@@ -81,7 +81,7 @@
         "release_title": "8"
     },
     "CentOS9": {
-        "aliases": "centos, centos-stream, centos:9, centos-stream:9",
+        "aliases": "centos, centos-stream, centos9, centos-stream9",
         "items": {
             "arm64": {
                 "id": "4b682f7219bc62ab3991a1df181f55d5b726e6d119236dafc9203a8395148cde",

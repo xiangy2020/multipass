@@ -161,9 +161,13 @@ auto make_cloud_init_vendor_config(const mp::SSHKeyProvider& key_provider,
     // Pollinate is not available as a RPM package and also dependencies that are inherent to
     // Ubuntu/Debian systems
     const auto& image_name = request->image();
-    // centos 系列（centos、centos-stream、centos:8、centos:9 等）均不支持 pollinate
-    const bool is_centos = image_name == "centos" || image_name.starts_with("centos:") ||
-                           image_name == "centos-stream" || image_name.starts_with("centos-stream:");
+    // centos 系列（centos、centos-stream、centos8、centos9 等）均不支持 pollinate
+    // 注意：multipass 将 "centos:8" 解析为 remote=centos, image=8，因此版本化别名使用不含冒号的形式
+    const bool is_centos = image_name == "centos" || image_name == "centos-stream" ||
+                           (image_name.starts_with("centos") &&
+                            !image_name.empty() && std::isdigit(image_name.back())) ||
+                           (image_name.starts_with("centos-stream") &&
+                            !image_name.empty() && std::isdigit(image_name.back()));
     if (image_name != "fedora" && !is_centos)
     {
         config["packages"].push_back("pollinate");

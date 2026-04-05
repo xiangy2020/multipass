@@ -129,11 +129,11 @@ class CentOSScraper(BaseScraper):
         if not items:
             raise RuntimeError(f"所有架构的 CentOS Stream {version} 镜像均获取失败")
 
-        # 默认版本使用通用别名，其他版本使用版本化别名
+        # 默认版本使用通用别名，其他版本使用版本化别名（不含冒号，避免与 multipass remote:image 语法冲突）
         if version == CENTOS_DEFAULT_VERSION:
-            aliases = f"centos, centos-stream, centos:{version}, centos-stream:{version}"
+            aliases = f"centos, centos-stream, centos{version}, centos-stream{version}"
         else:
-            aliases = f"centos:{version}, centos-stream:{version}"
+            aliases = f"centos{version}, centos-stream{version}"
 
         return {
             "aliases": aliases,
