@@ -216,10 +216,11 @@ YAML
 }
 
 # 并行启动所有节点
+# 用法: launch_nodes <tmp_dir> <node1> <node2> ...
 launch_nodes() {
+    local tmp_dir="$1"
+    shift
     local node_names=("$@")
-    local tmp_dir="${node_names[-1]}"
-    unset 'node_names[-1]'
 
     log_step "启动 ${#node_names[@]} 个节点（并行创建）"
     log_info "镜像: ${IMAGE} | CPU: ${CPUS} 核 | 内存: ${MEMORY} | 磁盘: ${DISK}"
@@ -451,7 +452,7 @@ main() {
     log_success "cloud-init 配置已生成: ${TMP_DIR}"
 
     # 5. 并行启动所有节点
-    launch_nodes "${NODE_NAMES[@]}" "$TMP_DIR"
+    launch_nodes "$TMP_DIR" "${NODE_NAMES[@]}"
 
     # 6. 获取节点 IP
     local IP_FILE
