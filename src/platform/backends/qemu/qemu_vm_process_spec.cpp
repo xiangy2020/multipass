@@ -18,6 +18,7 @@
 #include "qemu_vm_process_spec.h"
 
 #include <QCoreApplication>
+#include <QFile>
 #include <QRegularExpression>
 #include <multipass/exceptions/snap_environment_exception.h>
 #include <multipass/format.h>
@@ -25,6 +26,9 @@
 #include <multipass/platform.h>
 #include <multipass/snap_utils.h>
 #include <shared/linux/backend_utils.h>
+
+#include <filesystem>
+#include <stdexcept>
 
 namespace mp = multipass;
 namespace mpl = multipass::logging;
@@ -87,6 +91,21 @@ in `man qemu-system`, under `-m` option; including suffix to avoid relying on de
                     .arg(MP_PLATFORM.path_to_qstr(desc.image.image_path))
              << "-device"
              << "scsi-hd,drive=hda,bus=scsi0.0";
+        // 额外数据磁盘
+        for (const auto& extra_disk : desc.extra_disks)
+        {
+            const auto disk_path = MP_PLATFORM.path_to_qstr(
+                std::filesystem::path{extra_disk.path});
+            if (!QFile::exists(disk_path))
+                throw std::runtime_error(
+                    fmt::format("Extra disk image not found: {}", extra_disk.path));
+            args << "-drive"
+                 << QString("file=%1,if=none,format=qcow2,discard=unmap,id=%2")
+                        .arg(disk_path, QString::fromStdString(extra_disk.id))
+                 << "-device"
+                 << QString("scsi-hd,drive=%1,bus=scsi0.0")
+                        .arg(QString::fromStdString(extra_disk.id));
+        }
         // Number of cpu cores
         args << "-smp" << QString::number(desc.num_cores);
         // Memory to use for VM
@@ -202,6 +221,9 @@ profile %1 flags=(attach_disconnected) {
   %6 rwk,  # QCow2 filesystem image
   %7 rk,   # cloud-init ISO
 
+  # Extra data disks
+  %9
+
   # allow full access just to user-specified mount directories on the host
   %8
 }
@@ -212,12 +234,19 @@ profile %1 flags=(attach_disconnected) {
     QString signal_peer; // who can send kill signal to qemu
     QString firmware;    // location of bootloader firmware needed by qemu
     QString mount_dirs;  // directories on host that are mounted
+    QString extra_disk_rules; // extra disk image access rules
 
     for (const auto& [_, mount_data] : mount_args)
     {
         const auto& [source_path, __] = mount_data;
         mount_dirs += QString::fromStdString(source_path) + "/ rw,\n  ";
         mount_dirs += QString::fromStdString(source_path) + "/** rwlk,\n  ";
+    }
+
+    for (const auto& extra_disk : desc.extra_disks)
+    {
+        extra_disk_rules +=
+            QString::fromStdString(extra_disk.path) + " rwk,  # extra data disk\n  ";
     }
 
     try
@@ -239,7 +268,8 @@ profile %1 flags=(attach_disconnected) {
                                 program(),
                                 QString::fromStdString(desc.image.image_path),
                                 desc.cloud_init_iso,
-                                mount_dirs);
+                                mount_dirs,
+                                extra_disk_rules);
 }
 
 QString mp::QemuVMProcessSpec::identifier() const

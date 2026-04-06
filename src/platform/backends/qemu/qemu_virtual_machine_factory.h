@@ -38,6 +38,8 @@ public:
     VMImage prepare_source_image(const VMImage& source_image) override;
     void prepare_instance_image(const VMImage& instance_image,
                                 const VirtualMachineDescription& desc) override;
+    void create_extra_disk(const MemorySize& disk_size,
+                           const std::filesystem::path& image_path) override;
     void hypervisor_health_check() override;
     QString get_backend_version_string() const override;
     QString get_backend_directory_name() const override;

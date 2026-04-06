@@ -81,6 +81,12 @@ void mp::QemuVirtualMachineFactory::prepare_instance_image(const mp::VMImage& in
     mp::backend::resize_instance_image(desc.disk_space, instance_image.image_path);
 }
 
+void mp::QemuVirtualMachineFactory::create_extra_disk(const MemorySize& disk_size,
+                                                       const std::filesystem::path& image_path)
+{
+    mp::backend::create_qcow2_image(disk_size, image_path);
+}
+
 void mp::QemuVirtualMachineFactory::hypervisor_health_check()
 {
     qemu_platform->platform_health_check();

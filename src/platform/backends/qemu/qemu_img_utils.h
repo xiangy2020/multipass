@@ -41,6 +41,7 @@ Process::UPtr checked_exec_qemu_img(std::unique_ptr<QemuImgProcessSpec> spec,
                                     const std::string& custom_error_prefix = "Internal error",
                                     std::optional<int> timeout = std::nullopt);
 void resize_instance_image(const MemorySize& disk_space, const std::filesystem::path& image_path);
+void create_qcow2_image(const MemorySize& disk_size, const std::filesystem::path& image_path);
 std::filesystem::path convert_to_qcow_if_necessary(const std::filesystem::path& image_path);
 void amend_to_qcow2_v3(const std::filesystem::path& image_path);
 std::filesystem::path convert_to_raw(const std::filesystem::path& image_path);

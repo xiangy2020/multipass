@@ -74,6 +74,7 @@ message LaunchRequest {
     bool permission_to_bridge = 13;
     int32 timeout = 14;
     string password = 15;
+    repeated string extra_disk_sizes = 16; // 额外数据磁盘大小列表，如 ["10G", "20G"]
 }
 
 message LaunchError {
@@ -83,6 +84,7 @@ message LaunchError {
         INVALID_DISK_SIZE = 2;
         INVALID_HOSTNAME = 3;
         INVALID_NETWORK = 4;
+        INVALID_EXTRA_DISK_SIZE = 5; // 额外磁盘大小无效
     }
     repeated ErrorCodes error_codes = 1;
 }
@@ -173,6 +175,11 @@ message IdMap {
     int32 instance_id = 2;
 }
 
+message ExtraDiskInfo {
+    string id = 1;    // 设备 ID，如 "hdb"
+    string size = 2;  // 磁盘总大小（人类可读格式）
+}
+
 message MountMaps {
     repeated IdMap uid_mappings = 1;
     repeated IdMap gid_mappings = 2;
@@ -240,6 +247,7 @@ message DetailedInfoItem {
     string disk_total = 4;
     string cpu_count = 5;
     MountInfo mount_info = 6;
+    repeated ExtraDiskInfo extra_disks = 9; // 额外数据磁盘列表
 
     oneof extra_info {
         InstanceDetails instance_info = 7;

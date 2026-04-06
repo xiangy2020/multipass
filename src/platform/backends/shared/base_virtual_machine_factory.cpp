@@ -26,6 +26,8 @@
 #include <multipass/vm_specs.h>
 #include <multipass/yaml_node_utils.h>
 
+#include <stdexcept>
+
 namespace mp = multipass;
 namespace mpu = multipass::utils;
 
@@ -33,6 +35,14 @@ const mp::Path mp::BaseVirtualMachineFactory::instances_subdir = "vault/instance
 
 mp::BaseVirtualMachineFactory::BaseVirtualMachineFactory(const Path& instances_dir)
     : instances_dir{instances_dir} {};
+
+void mp::VirtualMachineFactory::create_extra_disk(const MemorySize& /*disk_size*/,
+                                                   const std::filesystem::path& /*image_path*/)
+{
+    throw std::runtime_error(
+        "This backend does not support creating extra disks. "
+        "Extra disk feature is currently only supported on QEMU backend.");
+}
 
 void mp::BaseVirtualMachineFactory::configure(VirtualMachineDescription& vm_desc)
 {

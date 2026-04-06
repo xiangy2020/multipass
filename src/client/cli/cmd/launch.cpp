@@ -209,6 +209,14 @@ mp::ParseCode cmd::Launch::parse_args(mp::ArgParser* parser)
         "disk",
         QString::fromUtf8(default_disk_size));
 
+    QCommandLineOption extraDiskOption(
+        "extra-disk",
+        QString::fromStdString(
+            fmt::format("Add an extra data disk. Positive integers, in bytes, or decimals, with K, "
+                        "M, G suffix. Minimum: 1G. Can be specified multiple times to add multiple "
+                        "disks (e.g. --extra-disk 10G --extra-disk 20G).")),
+        "extra-disk");
+
     QCommandLineOption memOption(
         {"m", "memory"},
         QString::fromStdString(
@@ -257,6 +265,7 @@ mp::ParseCode cmd::Launch::parse_args(mp::ArgParser* parser)
 
     parser->addOptions({cpusOption,
                         diskOption,
+                        extraDiskOption,
                         memOption,
                         nameOption,
                         cloudInitOption,
@@ -356,6 +365,32 @@ mp::ParseCode cmd::Launch::parse_args(mp::ArgParser* parser)
         mp::MemorySize{arg_disk_size}; // throw if bad
 
         request.set_disk_space(arg_disk_size);
+    }
+
+    if (parser->isSet(extraDiskOption))
+    {
+        static const auto min_extra_disk = mp::MemorySize{"1G"};
+        for (const auto& value : parser->values(extraDiskOption))
+        {
+            auto size_str = value.toStdString();
+            try
+            {
+                mp::MemorySize size{size_str};
+                if (size < min_extra_disk)
+                {
+                    fmt::print(cerr,
+                               "Error: extra disk size '{}' is too small, minimum is 1G.\n",
+                               size_str);
+                    return ParseCode::CommandLineError;
+                }
+            }
+            catch (const mp::InvalidMemorySizeException& e)
+            {
+                fmt::print(cerr, "Error: invalid extra disk size '{}': {}\n", size_str, e.what());
+                return ParseCode::CommandLineError;
+            }
+            request.add_extra_disk_sizes(size_str);
+        }
     }
 
     if (parser->isSet(mountOption))
@@ -566,6 +601,10 @@ mp::ReturnCodeVariant cmd::Launch::request_launch(const ArgParser* parser)
             {
                 error_details =
                     fmt::format("Invalid disk size value supplied: {}.", request.disk_space());
+            }
+            else if (error == LaunchError::INVALID_EXTRA_DISK_SIZE)
+            {
+                error_details = "Invalid extra disk size value supplied.";
             }
             else if (error == LaunchError::INVALID_MEM_SIZE)
             {

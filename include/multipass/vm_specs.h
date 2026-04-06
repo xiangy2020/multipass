@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "extra_disk.h"
 #include "memory_size.h"
 #include "network_interface.h"
 #include "virtual_machine.h"
@@ -37,6 +38,7 @@ struct VMSpecs
     MemorySize disk_space;
     std::string default_mac_address;
     std::vector<NetworkInterface> extra_interfaces; // We want interfaces to be ordered.
+    std::vector<ExtraDisk> extra_disks;             // 额外数据磁盘列表
     std::string ssh_username;
     VirtualMachine::State state;
     std::unordered_map<std::string, VMMount> mounts;

@@ -20,10 +20,13 @@
 #include "days.h"
 #include "disabled_copy_move.h"
 #include "fetch_type.h"
+#include "memory_size.h"
 #include "path.h"
 #include "virtual_machine.h"
 #include "vm_image.h"
 #include "vm_image_vault.h"
+
+#include <filesystem>
 
 namespace YAML
 {
@@ -69,6 +72,17 @@ public:
     virtual void prepare_instance_image(const VMImage& instance_image,
                                         const VirtualMachineDescription& desc) = 0;
     virtual void hypervisor_health_check() = 0;
+
+    /**
+     * 创建一块额外数据磁盘镜像文件（qcow2 格式）。
+     * 默认实现抛出 std::runtime_error，各后端可按需覆盖。
+     *
+     * @param disk_size  磁盘大小
+     * @param image_path 镜像文件路径
+     */
+    virtual void create_extra_disk(const MemorySize& disk_size,
+                                   const std::filesystem::path& image_path);
+
     virtual QString get_backend_directory_name() const = 0;
     virtual Path get_instance_directory(const std::string& name) const = 0;
     virtual QString get_backend_version_string() const = 0;

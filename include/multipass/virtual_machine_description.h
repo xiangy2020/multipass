@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <multipass/extra_disk.h>
 #include <multipass/memory_size.h>
 #include <multipass/network_interface.h>
 #include <multipass/path.h>
@@ -42,6 +43,7 @@ public:
     std::string vm_name;
     std::string default_mac_address;
     std::vector<NetworkInterface> extra_interfaces;
+    std::vector<ExtraDisk> extra_disks; // 额外数据磁盘列表
     std::string ssh_username;
     VMImage image;
     Path cloud_init_iso;

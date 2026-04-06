@@ -17,6 +17,7 @@
 
 #include <multipass/constants.h>
 #include <multipass/exceptions/ghost_instance_exception.h>
+#include <multipass/extra_disk.h>
 #include <multipass/json_utils.h>
 #include <multipass/utils.h>
 #include <multipass/vm_specs.h>
@@ -41,6 +42,7 @@ void mp::tag_invoke(const boost::json::value_from_tag&,
             // rest of the interfaces.
             {"mac_addr", specs.default_mac_address},
             {"extra_interfaces", boost::json::value_from(specs.extra_interfaces)},
+            {"extra_disks", boost::json::value_from(specs.extra_disks)},
             {"mounts", boost::json::value_from(specs.mounts, MapAsJsonArray{"target_path"})},
             {"clone_count", specs.clone_count}};
 }
@@ -71,6 +73,7 @@ mp::VMSpecs mp::tag_invoke(const boost::json::value_to_tag<mp::VMSpecs>&,
             MemorySize{disk_space.empty() ? default_disk_size : disk_space},
             mac_addr,
             lookup_or<std::vector<NetworkInterface>>(json, "extra_interfaces", {}),
+            lookup_or<std::vector<ExtraDisk>>(json, "extra_disks", {}),
             ssh_username,
             static_cast<mp::VirtualMachine::State>(value_to<int>(json.at("state"))),
             value_to<mounts_t>(json.at("mounts"), MapAsJsonArray{"target_path"}),

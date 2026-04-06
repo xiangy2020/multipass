@@ -535,6 +535,18 @@ auto validate_create_arguments(const mp::LaunchRequest* request, const mp::Daemo
     auto extra_interfaces =
         validate_extra_interfaces(request, *config->factory, nets_need_bridging, option_errors);
 
+    // 校验额外磁盘大小
+    static const auto min_extra_disk = mp::MemorySize{"1G"};
+    std::vector<mp::MemorySize> extra_disk_sizes;
+    for (const auto& size_str : request->extra_disk_sizes())
+    {
+        auto opt_size = try_mem_size(size_str);
+        if (opt_size && *opt_size >= min_extra_disk)
+            extra_disk_sizes.push_back(*opt_size);
+        else
+            option_errors.add_error_codes(mp::LaunchError::INVALID_EXTRA_DISK_SIZE);
+    }
+
     struct CheckedArguments
     {
         mp::MemorySize mem_size;
@@ -542,12 +554,14 @@ auto validate_create_arguments(const mp::LaunchRequest* request, const mp::Daemo
         std::string instance_name;
         std::vector<mp::NetworkInterface> extra_interfaces;
         std::vector<std::string> nets_need_bridging;
+        std::vector<mp::MemorySize> extra_disk_sizes;
         mp::LaunchError option_errors;
     } ret{std::move(mem_size),
           std::move(disk_space),
           std::move(instance_name),
           std::move(extra_interfaces),
           std::move(nets_need_bridging),
+          std::move(extra_disk_sizes),
           std::move(option_errors)};
     return ret;
 }
@@ -1404,6 +1418,7 @@ mp::Daemon::Daemon(std::unique_ptr<const DaemonConfig> the_config)
                                               name,
                                               spec.default_mac_address,
                                               spec.extra_interfaces,
+                                              spec.extra_disks,
                                               spec.ssh_username,
                                               vm_image,
                                               cloud_init_iso,
@@ -3176,6 +3191,7 @@ void mp::Daemon::create_vm(const CreateRequest* request,
                                            vm_desc.disk_space,
                                            vm_desc.default_mac_address,
                                            vm_desc.extra_interfaces,
+                                           vm_desc.extra_disks,
                                            config->ssh_username,
                                            VirtualMachine::State::off,
                                            {},
@@ -3344,6 +3360,21 @@ void mp::Daemon::create_vm(const CreateRequest* request,
             vm_desc.image = vm_image;
             config->factory->configure(vm_desc);
             config->factory->prepare_instance_image(vm_image, vm_desc);
+
+            // 创建额外数据磁盘镜像文件
+            const auto instance_dir =
+                mpu::base_dir(MP_PLATFORM.path_to_qstr(vm_image.image_path)).toStdString();
+            char disk_id_char = 'b'; // 系统盘为 hda，额外磁盘从 hdb 开始
+            for (size_t i = 0; i < checked_args.extra_disk_sizes.size(); ++i)
+            {
+                const auto& disk_size = checked_args.extra_disk_sizes[i];
+                std::string disk_id = std::string("hd") + disk_id_char++;
+                std::filesystem::path disk_path =
+                    std::filesystem::path{instance_dir} /
+                    fmt::format("{}-extra-disk-{}.qcow2", name, i);
+                config->factory->create_extra_disk(disk_size, disk_path);
+                vm_desc.extra_disks.push_back({disk_id, disk_path.string(), disk_size});
+            }
 
             // Everything went well, add the MAC addresses used in this instance.
             allocated_mac_addrs = std::move(new_macs);
@@ -3848,6 +3879,14 @@ void mp::Daemon::populate_instance_info(VirtualMachine& vm,
 
     auto mount_info = info->mutable_mount_info();
     populate_mount_info(vm_specs.mounts, mount_info, have_mounts);
+
+    // 填充额外磁盘信息
+    for (const auto& extra_disk : vm_specs.extra_disks)
+    {
+        auto* disk_info = info->add_extra_disks();
+        disk_info->set_id(extra_disk.id);
+        disk_info->set_size(extra_disk.size.human_readable());
+    }
 
     const auto created_time = QFileInfo{vm.instance_directory().path()}.birthTime();
     auto timestamp = instance_info->mutable_creation_timestamp();

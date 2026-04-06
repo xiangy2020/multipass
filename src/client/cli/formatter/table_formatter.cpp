@@ -188,6 +188,19 @@ void generate_instance_details(Dest&& dest, const mp::DetailedInfoItem& item)
                    "Memory usage:",
                    to_usage(instance_details.memory_usage(), item.memory_total()));
 
+    // 展示额外磁盘信息
+    const auto& extra_disks = item.extra_disks();
+    if (!extra_disks.empty())
+    {
+        fmt::format_to(dest, "{:<16}", "Extra disks:");
+        for (auto it = extra_disks.cbegin(); it != extra_disks.cend(); ++it)
+        {
+            if (it != extra_disks.cbegin())
+                fmt::format_to(dest, "{:<16}", "");
+            fmt::format_to(dest, "{} ({})\n", it->id(), it->size());
+        }
+    }
+
     const auto& mount_paths = item.mount_info().mount_paths();
     fmt::format_to(dest, "{:<16}{}", "Mounts:", mount_paths.empty() ? "--\n" : "");
 

@@ -84,6 +84,18 @@ void mp::backend::resize_instance_image(const MemorySize& disk_space,
         mp::image_resize_timeout);
 }
 
+void mp::backend::create_qcow2_image(const MemorySize& disk_size,
+                                     const std::filesystem::path& image_path)
+{
+    auto size_str = QString::number(disk_size.in_bytes());
+    QStringList qemuimg_parameters{
+        {"create", "-f", "qcow2", MP_PLATFORM.path_to_qstr(image_path), size_str}};
+
+    checked_exec_qemu_img(
+        std::make_unique<mp::QemuImgProcessSpec>(qemuimg_parameters, image_path),
+        fmt::format("Cannot create extra disk image at {}", image_path.string()));
+}
+
 std::filesystem::path mp::backend::convert_to_qcow_if_necessary(
     const std::filesystem::path& image_path)
 {
