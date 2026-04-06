@@ -12,10 +12,10 @@
 #   -c, --cpus       <核数>    每个节点的 CPU 核数（默认: 2）
 #   -m, --memory     <内存>    每个节点的内存大小（默认: 2G）
 #   -d, --disk       <磁盘>    每个节点的系统盘大小（默认: 20G）
-#   -e, --extra-disk [大小]    为每个节点挂载独立数据盘（宿主机目录挂载到虚拟机）
-#                              可选指定大小（如: 50G），仅作记录展示，不限制实际容量
-#                              数据目录统一存放在 ~/.multipass-data/<prefix>/<node>/
-#                              与虚拟机系统盘完全独立，互不影响
+#   -e, --extra-disk [大小]    为每个节点创建独立数据盘（虚拟机内 loop 设备）
+#                              可选指定大小（如: 50G），默认 20G
+#                              在虚拟机内创建 img 文件 → loop 设备 → 格式化 → 挂载
+#                              与系统盘完全独立，重启后自动挂载（写入 /etc/fstab）
 #   -t, --mount-path <路径>    数据盘在虚拟机内的挂载目录（默认: /data），需以 / 开头
 #   -k, --k8s                 安装 k3s 轻量级 Kubernetes 集群
 #   -h, --help                显示帮助信息
@@ -25,8 +25,8 @@
 #   ./create-cluster.sh -n 5 -i ubuntu:22.04              # 创建 5 节点 Ubuntu 集群
 #   ./create-cluster.sh -n 3 -i centos:8 -k               # 创建 3 节点 CentOS 8 k3s 集群
 #   ./create-cluster.sh -p master -n 1 -c 4 -m 4G        # 创建单个 master 节点
-#   ./create-cluster.sh -n 3 -e                           # 创建 3 节点集群，每节点挂载独立数据盘到 /data
-#   ./create-cluster.sh -n 3 -e 50G -t /data1            # 挂载数据盘到 /data1，标注大小 50G
+#   ./create-cluster.sh -n 3 -e                           # 创建 3 节点集群，每节点创建 20G 数据盘挂载到 /data
+#   ./create-cluster.sh -n 3 -e 50G -t /data1            # 创建 50G 数据盘挂载到 /data1
 # =============================================================================
 
 set -euo pipefail
@@ -47,10 +47,9 @@ NAME_PREFIX="node"
 CPUS=2
 MEMORY="2G"
 DISK="20G"
-EXTRA_DISK=false    # 是否挂载额外数据盘（宿主机目录 → 虚拟机）
-EXTRA_DISK_SIZE=""  # 数据盘大小标注（可选，仅展示用）
+EXTRA_DISK=false    # 是否创建额外数据盘（虚拟机内 loop 设备）
+EXTRA_DISK_SIZE="20G"  # 数据盘大小（默认 20G）
 MOUNT_PATH="/data"  # 数据盘在虚拟机内的挂载目录
-DATA_BASE_DIR="${HOME}/.multipass-data"  # 宿主机数据盘根目录
 INSTALL_K3S=false
 
 # ─── 工具函数 ────────────────────────────────────────────────────────────────
@@ -237,56 +236,31 @@ runcmd:
   # 重启 SSH 服务
   - systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || true
 YAML
+
+        # 如果需要额外数据盘，追加 loop 设备初始化命令到 cloud-init
+        if [[ "$EXTRA_DISK" == "true" ]]; then
+            cat >> "$cloud_init_file" <<YAML
+  # 创建数据盘（loop 设备）
+  - |
+    set -e
+    IMG_FILE="/var/lib/data-disk.img"
+    MOUNT_POINT="${MOUNT_PATH}"
+    DISK_SIZE="${EXTRA_DISK_SIZE}"
+    # 创建 img 文件
+    fallocate -l "\${DISK_SIZE}" "\${IMG_FILE}" 2>/dev/null || dd if=/dev/zero of="\${IMG_FILE}" bs=1M count=\$(echo "\${DISK_SIZE}" | sed 's/[Gg]//' | awk '{print \$1*1024}') status=none
+    # 格式化为 xfs
+    mkfs.xfs -f "\${IMG_FILE}" >/dev/null 2>&1
+    # 创建挂载点
+    mkdir -p "\${MOUNT_POINT}"
+    # 挂载
+    mount -o loop "\${IMG_FILE}" "\${MOUNT_POINT}"
+    # 写入 fstab 实现开机自动挂载
+    echo "\${IMG_FILE} \${MOUNT_POINT} xfs loop,defaults 0 0" >> /etc/fstab
+YAML
+        fi
     done
 
     echo "$tmp_dir"
-}
-
-# 挂载数据盘（multipass mount 宿主机目录到虚拟机）
-mount_data_disks() {
-    local node_names=("$@")
-
-    log_step "挂载数据盘（宿主机目录 → 虚拟机 ${MOUNT_PATH}）"
-
-    for name in "${node_names[@]}"; do
-        local host_dir="${DATA_BASE_DIR}/${NAME_PREFIX}/${name}"
-
-        # 在宿主机创建数据目录
-        mkdir -p "$host_dir"
-        log_info "宿主机数据目录: ${CYAN}${host_dir}${NC}"
-
-        # 在虚拟机内创建挂载点
-        multipass exec "$name" -- sudo mkdir -p "$MOUNT_PATH" 2>/dev/null || true
-
-        # 安装 sshfs（multipass mount 依赖，CentOS/RHEL 系列需先启用 EPEL）
-        log_info "检查并安装 sshfs（节点 ${CYAN}${name}${NC}）..."
-        multipass exec "$name" -- bash -c "
-            if ! command -v sshfs &>/dev/null; then
-                if command -v dnf &>/dev/null; then
-                    # CentOS/RHEL: fuse-sshfs 在 EPEL 仓库，需先启用
-                    if ! dnf repolist enabled 2>/dev/null | grep -qi epel; then
-                        dnf install -y epel-release &>/dev/null || true
-                    fi
-                    dnf install -y fuse-sshfs &>/dev/null || true
-                elif command -v yum &>/dev/null; then
-                    if ! yum repolist enabled 2>/dev/null | grep -qi epel; then
-                        yum install -y epel-release &>/dev/null || true
-                    fi
-                    yum install -y fuse-sshfs &>/dev/null || true
-                elif command -v apt-get &>/dev/null; then
-                    apt-get install -y sshfs &>/dev/null || true
-                fi
-            fi
-        " 2>/dev/null || true
-
-        # 执行 multipass mount
-        if multipass mount "$host_dir" "${name}:${MOUNT_PATH}"; then
-            log_success "节点 ${CYAN}${name}${NC} 数据盘挂载成功: ${host_dir} → ${MOUNT_PATH}"
-        else
-            log_warn "节点 ${name} 数据盘挂载失败，请手动执行: multipass mount ${host_dir} ${name}:${MOUNT_PATH}"
-        fi
-    done
-    log_success "数据盘挂载完成"
 }
 
 # 并行启动所有节点
@@ -299,9 +273,7 @@ launch_nodes() {
     log_step "启动 ${#node_names[@]} 个节点（并行创建）"
     local disk_info="系统盘: ${DISK}"
     if [[ "$EXTRA_DISK" == "true" ]]; then
-        local data_label="宿主机目录挂载 → ${MOUNT_PATH}"
-        [[ -n "$EXTRA_DISK_SIZE" ]] && data_label="${EXTRA_DISK_SIZE} 宿主机目录挂载 → ${MOUNT_PATH}"
-        disk_info+=" | 数据盘: ${data_label}"
+        disk_info+=" | 数据盘: ${EXTRA_DISK_SIZE} loop设备 → ${MOUNT_PATH}"
     fi
     log_info "镜像: ${IMAGE} | CPU: ${CPUS} 核 | 内存: ${MEMORY} | ${disk_info}"
 
@@ -494,10 +466,8 @@ print_summary() {
     echo -e "  停止集群:    ${CYAN}multipass stop ${node_names[*]}${NC}"
     echo -e "  删除集群:    ${CYAN}multipass delete ${node_names[*]} --purge${NC}"
     if [[ "$EXTRA_DISK" == "true" ]]; then
-        local host_data_dir="${DATA_BASE_DIR}/${NAME_PREFIX}"
-        echo -e "  查看数据盘:   ${CYAN}multipass exec ${node_names[0]} -- ls ${MOUNT_PATH}${NC}"
-        echo -e "  宿主机数据:   ${CYAN}ls ${host_data_dir}${NC}"
-        echo -e "  清理数据盘:   ${CYAN}./tools/cluster/delete-cluster.sh -p ${NAME_PREFIX}${NC}"
+        echo -e "  查看数据盘:   ${CYAN}multipass exec ${node_names[0]} -- df -Th ${MOUNT_PATH}${NC}"
+        echo -e "  数据盘位置:   虚拟机内 /var/lib/data-disk.img（${EXTRA_DISK_SIZE}）"
     fi
     if [[ "$INSTALL_K3S" == "true" ]]; then
         echo -e "  查看 k8s 节点: ${CYAN}multipass exec ${node_names[0]} -- kubectl get nodes${NC}"
@@ -518,9 +488,7 @@ main() {
     log_info "配置: ${NODE_COUNT} 个节点 | 镜像: ${IMAGE} | 前缀: ${NAME_PREFIX}"
     local disk_summary="系统盘: ${DISK}"
     if [[ "$EXTRA_DISK" == "true" ]]; then
-        local data_label="宿主机目录 → ${MOUNT_PATH}"
-        [[ -n "$EXTRA_DISK_SIZE" ]] && data_label="${EXTRA_DISK_SIZE} 宿主机目录 → ${MOUNT_PATH}"
-        disk_summary+=" | 数据盘: ${data_label}"
+        disk_summary+=" | 数据盘: ${EXTRA_DISK_SIZE} loop设备 → ${MOUNT_PATH}"
     fi
     log_info "资源: ${CPUS} CPU | ${MEMORY} 内存 | ${disk_summary}"
     [[ "$INSTALL_K3S" == "true" ]] && log_info "将安装 k3s Kubernetes 集群"
@@ -550,12 +518,7 @@ main() {
     # 7. 配置节点间 hosts 解析
     configure_hosts "$IP_FILE" "${NODE_NAMES[@]}"
 
-    # 8. 可选：挂载数据盘
-    if [[ "$EXTRA_DISK" == "true" ]]; then
-        mount_data_disks "${NODE_NAMES[@]}"
-    fi
-
-    # 9. 可选：安装 k3s
+    # 8. 可选：安装 k3s
     if [[ "$INSTALL_K3S" == "true" ]]; then
         install_k3s "$IP_FILE" "${NODE_NAMES[@]}"
     fi
