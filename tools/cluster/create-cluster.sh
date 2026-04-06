@@ -258,14 +258,21 @@ mount_data_disks() {
         # 在虚拟机内创建挂载点
         multipass exec "$name" -- sudo mkdir -p "$MOUNT_PATH" 2>/dev/null || true
 
-        # 安装 sshfs（multipass mount 依赖，CentOS/RHEL 系列默认未安装）
+        # 安装 sshfs（multipass mount 依赖，CentOS/RHEL 系列需先启用 EPEL）
         log_info "检查并安装 sshfs（节点 ${CYAN}${name}${NC}）..."
         multipass exec "$name" -- bash -c "
             if ! command -v sshfs &>/dev/null; then
                 if command -v dnf &>/dev/null; then
-                    dnf install -y fuse-sshfs &>/dev/null || dnf install -y sshfs &>/dev/null || true
+                    # CentOS/RHEL: fuse-sshfs 在 EPEL 仓库，需先启用
+                    if ! dnf repolist enabled 2>/dev/null | grep -qi epel; then
+                        dnf install -y epel-release &>/dev/null || true
+                    fi
+                    dnf install -y fuse-sshfs &>/dev/null || true
                 elif command -v yum &>/dev/null; then
-                    yum install -y fuse-sshfs &>/dev/null || yum install -y sshfs &>/dev/null || true
+                    if ! yum repolist enabled 2>/dev/null | grep -qi epel; then
+                        yum install -y epel-release &>/dev/null || true
+                    fi
+                    yum install -y fuse-sshfs &>/dev/null || true
                 elif command -v apt-get &>/dev/null; then
                     apt-get install -y sshfs &>/dev/null || true
                 fi
