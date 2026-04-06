@@ -6,9 +6,11 @@
 #   ./create-cluster.sh [选项]
 #
 # 选项:
-#   -n, --nodes      <数量>    节点数量（默认: 3）
+#   -n, --nodes      <数量>    节点数量（默认: 3，与 -N 互斥）
+#   -N, --names      <名称>    自定义节点名称，逗号分隔（如: master,worker1,worker2）
+#                              指定后 -n/-p 参数无效
 #   -i, --image      <镜像>    使用的镜像（默认: centos:9）
-#   -p, --prefix     <前缀>    节点名称前缀（默认: node）
+#   -p, --prefix     <前缀>    节点名称前缀（默认: node，与 -N 互斥）
 #   -c, --cpus       <核数>    每个节点的 CPU 核数（默认: 2）
 #   -m, --memory     <内存>    每个节点的内存大小（默认: 2G）
 #   -d, --disk       <磁盘>    每个节点的系统盘大小（默认: 20G）
@@ -21,12 +23,14 @@
 #   -h, --help                显示帮助信息
 #
 # 示例:
-#   ./create-cluster.sh                                    # 创建 3 节点 CentOS 9 集群
-#   ./create-cluster.sh -n 5 -i ubuntu:22.04              # 创建 5 节点 Ubuntu 集群
-#   ./create-cluster.sh -n 3 -i centos:8 -k               # 创建 3 节点 CentOS 8 k3s 集群
-#   ./create-cluster.sh -p master -n 1 -c 4 -m 4G        # 创建单个 master 节点
-#   ./create-cluster.sh -n 3 -e                           # 创建 3 节点集群，每节点额外数据盘 20G，挂载到 /data
-#   ./create-cluster.sh -n 3 -e 50G -t /data1            # 系统盘 20G + 独立数据盘 50G，挂载到 /data1
+#   ./create-cluster.sh                                         # 创建 3 节点 CentOS 9 集群
+#   ./create-cluster.sh -n 5 -i ubuntu:22.04                   # 创建 5 节点 Ubuntu 集群
+#   ./create-cluster.sh -n 3 -i centos:8 -k                    # 创建 3 节点 CentOS 8 k3s 集群
+#   ./create-cluster.sh -p master -n 1 -c 4 -m 4G             # 创建单个 master 节点
+#   ./create-cluster.sh -N dev-box -c 2 -m 2G -e 50G -t /data1 # 创建单个自定义名称节点
+#   ./create-cluster.sh -N master,worker1,worker2 -k           # 创建自定义名称的 k3s 集群
+#   ./create-cluster.sh -n 3 -e                                # 创建 3 节点集群，每节点额外数据盘 20G，挂载到 /data
+#   ./create-cluster.sh -n 3 -e 50G -t /data1                 # 系统盘 20G + 独立数据盘 50G，挂载到 /data1
 # =============================================================================
 
 set -euo pipefail
@@ -44,6 +48,7 @@ NC='\033[0m' # No Color
 NODE_COUNT=3
 IMAGE="centos:9"
 NAME_PREFIX="node"
+CUSTOM_NAMES=""         # 自定义节点名称列表（逗号分隔），非空时覆盖 NODE_COUNT/NAME_PREFIX
 CPUS=2
 MEMORY="2G"
 DISK="20G"
@@ -80,6 +85,7 @@ parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -n|--nodes)       NODE_COUNT="$2"; shift 2 ;;
+            -N|--names)       CUSTOM_NAMES="$2"; shift 2 ;;
             -i|--image)       IMAGE="$2";      shift 2 ;;
             -p|--prefix)      NAME_PREFIX="$2"; shift 2 ;;
             -c|--cpus)        CPUS="$2";       shift 2 ;;
@@ -103,7 +109,7 @@ parse_args() {
     done
 
     # 参数校验
-    if ! [[ "$NODE_COUNT" =~ ^[1-9][0-9]*$ ]]; then
+    if [[ -z "$CUSTOM_NAMES" ]] && ! [[ "$NODE_COUNT" =~ ^[1-9][0-9]*$ ]]; then
         log_error "节点数量必须为正整数，当前值: $NODE_COUNT"
         exit 1
     fi
@@ -115,15 +121,38 @@ parse_args() {
         log_error "挂载目录必须以 / 开头，当前值: $MOUNT_PATH"
         exit 1
     fi
+    # 校验自定义名称格式（只允许字母、数字、连字符，且以字母开头）
+    if [[ -n "$CUSTOM_NAMES" ]]; then
+        IFS=',' read -ra _names <<< "$CUSTOM_NAMES"
+        for _n in "${_names[@]}"; do
+            _n=$(echo "$_n" | tr -d ' ')
+            if ! [[ "$_n" =~ ^[a-zA-Z][a-zA-Z0-9-]*[a-zA-Z0-9]$|^[a-zA-Z]$ ]]; then
+                log_error "节点名称 '$_n' 不合法：只允许字母、数字、连字符，且必须以字母开头、以字母或数字结尾"
+                exit 1
+            fi
+        done
+    fi
 }
 
 # 生成节点名称列表
 get_node_names() {
     local names=()
-    for i in $(seq 1 "$NODE_COUNT"); do
-        names+=("${NAME_PREFIX}${i}")
-    done
-    echo "${names[@]}"
+    if [[ -n "$CUSTOM_NAMES" ]]; then
+        # 使用自定义名称列表
+        IFS=',' read -ra names <<< "$CUSTOM_NAMES"
+        # 去除每个名称的首尾空格
+        local trimmed=()
+        for n in "${names[@]}"; do
+            trimmed+=("$(echo "$n" | tr -d ' ')")
+        done
+        echo "${trimmed[@]}"
+    else
+        # 使用前缀+序号模式
+        for i in $(seq 1 "$NODE_COUNT"); do
+            names+=("${NAME_PREFIX}${i}")
+        done
+        echo "${names[@]}"
+    fi
 }
 
 # 检查节点是否已存在
@@ -499,7 +528,15 @@ main() {
     echo "  ╚═══════════════════════════════════════╝"
     echo -e "${NC}"
 
-    log_info "配置: ${NODE_COUNT} 个节点 | 镜像: ${IMAGE} | 前缀: ${NAME_PREFIX}"
+    # 计算实际节点数量（自定义名称时从名称列表获取）
+    local actual_count="$NODE_COUNT"
+    local name_desc="前缀: ${NAME_PREFIX}"
+    if [[ -n "$CUSTOM_NAMES" ]]; then
+        IFS=',' read -ra _tmp_names <<< "$CUSTOM_NAMES"
+        actual_count=${#_tmp_names[@]}
+        name_desc="名称: ${CUSTOM_NAMES}"
+    fi
+    log_info "配置: ${actual_count} 个节点 | 镜像: ${IMAGE} | ${name_desc}"
     local disk_summary="系统盘: ${DISK}"
     if [[ "$EXTRA_DISK" == "true" ]]; then
         disk_summary+=" | 数据盘: ${EXTRA_DISK_SIZE}（独立磁盘 /dev/sdb → ${MOUNT_PATH}）"
