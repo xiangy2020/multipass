@@ -1,6 +1,6 @@
 # Multipass 技术文档索引
 
-> 最后更新：2026-04-05（新增 SSH 连接虚拟机章节）
+> 最后更新：2026-04-06（新增多节点集群工具章节）
 > 文档总数：4 个
 
 本目录包含 Multipass 项目的技术文档，由代码分析自动生成。
@@ -15,6 +15,30 @@
 | [架构设计](./architecture.md) | 整体架构、客户端-守护进程通信、gRPC 接口、数据流 | v1.0 | 2026-04-05 |
 | [模块详细文档](./modules.md) | 各源码模块的详细说明、核心文件、接口定义 | v1.0 | 2026-04-05 |
 | [构建与部署指南](./build-guide.md) | Linux/macOS/Windows 构建步骤、运行方式、SSH 连接虚拟机、打包发布 | v1.1 | 2026-04-05 |
+
+---
+
+## 工具脚本
+
+| 脚本 | 说明 | 路径 |
+|------|------|------|
+| 多节点集群创建 | 一键创建 Multipass 多节点集群，支持并行启动、SSH 互信、/etc/hosts 解析、额外数据盘挂载、k3s 安装 | [tools/cluster/create-cluster.sh](../tools/cluster/create-cluster.sh) |
+
+**快速使用：**
+
+```bash
+# 创建 3 节点 CentOS 9 集群（默认）
+./tools/cluster/create-cluster.sh
+
+# 创建 3 节点集群，每节点额外挂载 50G 数据盘到 /data
+./tools/cluster/create-cluster.sh -n 3 -i centos:9 -c 4 -m 4G -d 50G -e 50G
+
+# 创建 3 节点 k3s Kubernetes 集群
+./tools/cluster/create-cluster.sh -n 3 -k
+
+# 查看完整参数说明
+./tools/cluster/create-cluster.sh --help
+```
 
 ---
 

@@ -1,5 +1,53 @@
 # Changelog
 
+## [Unreleased] - 2026-04-06
+
+### 新增
+
+#### 多节点集群创建工具（`tools/cluster/create-cluster.sh`）
+
+新增一键创建 Multipass 多节点集群的 Shell 脚本，支持并行启动节点、节点间 SSH 免密互信、`/etc/hosts` 主机名解析，以及可选的 k3s Kubernetes 集群安装。
+
+**主要特性：**
+
+- **并行创建**：所有节点同时启动，大幅缩短集群创建时间
+- **SSH 免密互信**：自动生成集群共享密钥，节点间可直接 `ssh root@nodeX` 登录
+- **主机名解析**：自动配置 `/etc/hosts`，节点间可通过主机名互相访问
+- **cloud-init 集成**：自动注入 SSH 配置、密码登录、磁盘扩容等初始化配置
+- **k3s 支持**：通过 `-k` 参数一键安装轻量级 Kubernetes 集群
+- **额外数据盘**：通过 `-e/--extra-disk` 参数为每个节点挂载独立数据盘到 `/data`
+
+**参数说明：**
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `-n, --nodes` | 节点数量 | 3 |
+| `-i, --image` | 镜像名称 | `centos:9` |
+| `-p, --prefix` | 节点名称前缀 | `node` |
+| `-c, --cpus` | 每节点 CPU 核数 | 2 |
+| `-m, --memory` | 每节点内存 | 2G |
+| `-d, --disk` | 每节点系统盘大小 | 20G |
+| `-e, --extra-disk` | 每节点额外数据盘大小（挂载至 `/data`） | 不挂载 |
+| `-k, --k8s` | 安装 k3s Kubernetes 集群 | 否 |
+
+**使用示例：**
+
+```bash
+# 创建 3 节点 CentOS 9 集群
+./tools/cluster/create-cluster.sh
+
+# 创建 3 节点集群，每节点额外挂载 50G 数据盘
+./tools/cluster/create-cluster.sh -n 3 -i centos:9 -c 4 -m 4G -d 50G -e 50G
+
+# 创建 3 节点 k3s Kubernetes 集群
+./tools/cluster/create-cluster.sh -n 3 -i centos:9 -k
+
+# 验证数据盘挂载
+multipass exec node1 -- df -h /data
+```
+
+---
+
 ## [Unreleased] - 2026-04-05
 
 ### 新增
