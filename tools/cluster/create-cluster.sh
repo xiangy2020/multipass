@@ -12,11 +12,10 @@
 #   -c, --cpus       <核数>    每个节点的 CPU 核数（默认: 2）
 #   -m, --memory     <内存>    每个节点的内存大小（默认: 2G）
 #   -d, --disk       <磁盘>    每个节点的系统盘大小（默认: 20G）
-#   -e, --extra-disk [大小]    为每个节点添加独立数据分区（真实磁盘分区，非 loop 设备）
+#   -e, --extra-disk [大小]    为每个节点添加独立数据磁盘（独立块设备 /dev/sdb）
 #                              可选指定大小（如: 50G），默认 20G
-#                              系统盘大小 = -d 参数值，总磁盘 = 系统盘 + 数据盘
-#                              在虚拟机内用 parted 划分新分区，格式化为 xfs 后挂载
-#                              与系统分区物理隔离，根分区不会被数据占满
+#                              利用 multipass 原生 --extra-disk 参数实现
+#                              在虚拟机内格式化为 xfs 后挂载到指定目录
 #   -t, --mount-path <路径>    数据盘在虚拟机内的挂载目录（默认: /data），需以 / 开头
 #   -k, --k8s                 安装 k3s 轻量级 Kubernetes 集群
 #   -h, --help                显示帮助信息
@@ -26,8 +25,8 @@
 #   ./create-cluster.sh -n 5 -i ubuntu:22.04              # 创建 5 节点 Ubuntu 集群
 #   ./create-cluster.sh -n 3 -i centos:8 -k               # 创建 3 节点 CentOS 8 k3s 集群
 #   ./create-cluster.sh -p master -n 1 -c 4 -m 4G        # 创建单个 master 节点
-#   ./create-cluster.sh -n 3 -e                           # 创建 3 节点集群，每节点系统盘 20G + 数据盘 20G，挂载到 /data
-#   ./create-cluster.sh -n 3 -e 50G -t /data1            # 系统盘 20G + 数据盘 50G，挂载到 /data1
+#   ./create-cluster.sh -n 3 -e                           # 创建 3 节点集群，每节点额外数据盘 20G，挂载到 /data
+#   ./create-cluster.sh -n 3 -e 50G -t /data1            # 系统盘 20G + 独立数据盘 50G，挂载到 /data1
 # =============================================================================
 
 set -euo pipefail
@@ -48,9 +47,9 @@ NAME_PREFIX="node"
 CPUS=2
 MEMORY="2G"
 DISK="20G"
-EXTRA_DISK=false    # 是否添加独立数据分区（真实磁盘分区）
-EXTRA_DISK_SIZE="20G"  # 数据分区大小（默认 20G）
-MOUNT_PATH="/data"  # 数据分区在虚拟机内的挂载目录
+EXTRA_DISK=false        # 是否添加独立数据磁盘
+EXTRA_DISK_SIZE="20G"   # 数据磁盘大小（默认 20G）
+MOUNT_PATH="/data"      # 数据磁盘在虚拟机内的挂载目录
 INSTALL_K3S=false
 
 # ─── 工具函数 ────────────────────────────────────────────────────────────────
@@ -62,7 +61,7 @@ log_success() { echo -e "${GREEN}${BOLD}✓${NC} $*"; }
 
 # 显示帮助信息
 show_help() {
-    sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
     exit 0
 }
 
@@ -174,12 +173,6 @@ generate_cloud_init() {
 #cloud-config
 # Multipass 集群节点 cloud-init 配置 - ${name}
 
-# 磁盘自动扩容（growpart 在 bootcmd 之后、runcmd 之前执行）
-growpart:
-  mode: auto
-  devices: ["/"]
-  ignore_growroot_disabled: false
-
 # 主机名解析（集群内所有节点）
 manage_etc_hosts: true
 
@@ -238,51 +231,34 @@ runcmd:
   - systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || true
 YAML
 
-        # 如果需要额外数据分区，在主 YAML 之前插入 bootcmd，并追加数据盘 runcmd 步骤
+        # 如果需要额外数据磁盘，追加格式化+挂载命令
+        # multipass --extra-disk 会将额外磁盘挂载为 /dev/sdb（第二块独立磁盘）
         if [[ "$EXTRA_DISK" == "true" ]]; then
-            # 在文件末尾追加 bootcmd（cloud-init 允许 bootcmd 在文件任意位置）
             cat >> "$cloud_init_file" <<YAML
-  # 格式化数据分区并挂载（分区由 bootcmd 提前创建）
+  # 格式化并挂载额外数据磁盘（multipass --extra-disk 挂载为 /dev/sdb）
   - |
     set -e
     MOUNT_POINT="${MOUNT_PATH}"
-    DISK_DEV=\$(lsblk -dpno NAME,TYPE | awk '\$2=="disk"{print \$1}' | grep -v loop | head -1)
-    # 找到第 3 个分区（bootcmd 创建的数据分区）
-    DATA_PART=\$(lsblk -lpno NAME \${DISK_DEV} | grep -v "^\${DISK_DEV}\$" | sed -n '3p')
-    if [[ -z "\${DATA_PART}" ]]; then
-      echo "ERROR: 数据分区未找到" >&2
+    DATA_DISK="/dev/sdb"
+    # 等待磁盘设备就绪
+    for i in \$(seq 1 10); do
+      [ -b "\${DATA_DISK}" ] && break
+      sleep 1
+    done
+    if [ ! -b "\${DATA_DISK}" ]; then
+      echo "ERROR: 数据磁盘 \${DATA_DISK} 未找到" >&2
       exit 1
     fi
     # 格式化为 xfs
-    mkfs.xfs -f \${DATA_PART}
+    mkfs.xfs -f "\${DATA_DISK}"
     # 创建挂载点
-    mkdir -p \${MOUNT_POINT}
-    # 获取分区 UUID
-    PART_UUID=\$(blkid -s UUID -o value \${DATA_PART})
-    # 写入 fstab
-    echo "UUID=\${PART_UUID} \${MOUNT_POINT} xfs defaults 0 0" >> /etc/fstab
+    mkdir -p "\${MOUNT_POINT}"
+    # 获取磁盘 UUID
+    DISK_UUID=\$(blkid -s UUID -o value "\${DATA_DISK}")
+    # 写入 fstab 实现开机自动挂载
+    echo "UUID=\${DISK_UUID} \${MOUNT_POINT} xfs defaults 0 0" >> /etc/fstab
     # 挂载
-    mount \${MOUNT_POINT}
-
-# bootcmd 在 growpart 之前执行：提前在磁盘末尾创建数据分区占位
-# growpart 扩容 sda2 时只能扩到 sda3 之前，不会占满整块磁盘
-bootcmd:
-  - |
-    set -e
-    EXTRA_GB="${EXTRA_DISK_SIZE%[Gg]*}"
-    DISK_DEV=\$(lsblk -dpno NAME,TYPE | awk '\$2=="disk"{print \$1}' | grep -v loop | head -1)
-    DISK_NAME=\$(basename \${DISK_DEV})
-    SECTOR_SIZE=\$(cat /sys/block/\${DISK_NAME}/queue/logical_block_size 2>/dev/null || echo 512)
-    TOTAL_SECTORS=\$(cat /sys/block/\${DISK_NAME}/size)
-    # 数据分区从磁盘末尾往前数 EXTRA_GB 的位置开始
-    DATA_SECTORS=\$((EXTRA_GB * 1024 * 1024 * 1024 / SECTOR_SIZE))
-    DATA_START=\$((TOTAL_SECTORS - DATA_SECTORS))
-    DATA_END=\$((TOTAL_SECTORS - 1))
-    # 幂等：检查是否已经创建过
-    if ! parted -s \${DISK_DEV} print 2>/dev/null | grep -q "^ 3"; then
-      parted -s \${DISK_DEV} mkpart primary xfs \${DATA_START}s \${DATA_END}s
-      partprobe \${DISK_DEV} 2>/dev/null || true
-    fi
+    mount "\${MOUNT_POINT}"
 YAML
         fi
     done
@@ -298,20 +274,10 @@ launch_nodes() {
     local node_names=("$@")
 
     log_step "启动 ${#node_names[@]} 个节点（并行创建）"
-    # 计算实际传给 multipass 的总磁盘大小（系统盘 + 数据盘）
-    local total_disk="$DISK"
-    if [[ "$EXTRA_DISK" == "true" ]]; then
-        # 将两个大小相加（单位统一为 G）
-        local sys_gb extra_gb total_gb
-        sys_gb=$(echo "$DISK" | sed 's/[Gg]//i')
-        extra_gb=$(echo "$EXTRA_DISK_SIZE" | sed 's/[Gg]//i')
-        total_gb=$((sys_gb + extra_gb))
-        total_disk="${total_gb}G"
-    fi
 
     local disk_info="系统盘: ${DISK}"
     if [[ "$EXTRA_DISK" == "true" ]]; then
-        disk_info+=" | 数据盘: ${EXTRA_DISK_SIZE} 独立分区 → ${MOUNT_PATH}（总磁盘: ${total_disk}）"
+        disk_info+=" | 数据盘: ${EXTRA_DISK_SIZE}（独立磁盘 /dev/sdb → ${MOUNT_PATH}）"
     fi
     log_info "镜像: ${IMAGE} | CPU: ${CPUS} 核 | 内存: ${MEMORY} | ${disk_info}"
 
@@ -324,13 +290,22 @@ launch_nodes() {
         log_files+=("$log_file")
 
         log_info "启动节点: ${CYAN}${name}${NC}"
-        multipass launch "$IMAGE" \
-            --name "$name" \
-            --cpus "$CPUS" \
-            --memory "$MEMORY" \
-            --disk "$total_disk" \
-            --cloud-init "$cloud_init_file" \
-            > "$log_file" 2>&1 &
+
+        # 构建 launch 命令
+        local launch_cmd=(
+            multipass launch "$IMAGE"
+            --name "$name"
+            --cpus "$CPUS"
+            --memory "$MEMORY"
+            --disk "$DISK"
+            --cloud-init "$cloud_init_file"
+        )
+        # 如果有额外磁盘，追加 --extra-disk 参数（利用 multipass 原生多磁盘支持）
+        if [[ "$EXTRA_DISK" == "true" ]]; then
+            launch_cmd+=(--extra-disk "$EXTRA_DISK_SIZE")
+        fi
+
+        "${launch_cmd[@]}" > "$log_file" 2>&1 &
         pids+=($!)
     done
 
@@ -505,7 +480,8 @@ print_summary() {
     echo -e "  删除集群:    ${CYAN}multipass delete ${node_names[*]} --purge${NC}"
     if [[ "$EXTRA_DISK" == "true" ]]; then
         echo -e "  查看数据盘:   ${CYAN}multipass exec ${node_names[0]} -- df -Th ${MOUNT_PATH}${NC}"
-        echo -e "  查看分区:     ${CYAN}multipass exec ${node_names[0]} -- lsblk${NC}"
+        echo -e "  查看磁盘:     ${CYAN}multipass exec ${node_names[0]} -- lsblk${NC}"
+        echo -e "  查看磁盘信息: ${CYAN}multipass info ${node_names[0]}${NC}"
     fi
     if [[ "$INSTALL_K3S" == "true" ]]; then
         echo -e "  查看 k8s 节点: ${CYAN}multipass exec ${node_names[0]} -- kubectl get nodes${NC}"
@@ -526,11 +502,7 @@ main() {
     log_info "配置: ${NODE_COUNT} 个节点 | 镜像: ${IMAGE} | 前缀: ${NAME_PREFIX}"
     local disk_summary="系统盘: ${DISK}"
     if [[ "$EXTRA_DISK" == "true" ]]; then
-        local sys_gb_s extra_gb_s total_gb_s
-        sys_gb_s=$(echo "$DISK" | sed 's/[Gg]//i')
-        extra_gb_s=$(echo "$EXTRA_DISK_SIZE" | sed 's/[Gg]//i')
-        total_gb_s=$((sys_gb_s + extra_gb_s))
-        disk_summary+=" | 数据盘: ${EXTRA_DISK_SIZE} 独立分区 → ${MOUNT_PATH}（总磁盘: ${total_gb_s}G）"
+        disk_summary+=" | 数据盘: ${EXTRA_DISK_SIZE}（独立磁盘 /dev/sdb → ${MOUNT_PATH}）"
     fi
     log_info "资源: ${CPUS} CPU | ${MEMORY} 内存 | ${disk_summary}"
     [[ "$INSTALL_K3S" == "true" ]] && log_info "将安装 k3s Kubernetes 集群"
@@ -565,7 +537,7 @@ main() {
         install_k3s "$IP_FILE" "${NODE_NAMES[@]}"
     fi
 
-    # 10. 打印摘要
+    # 9. 打印摘要
     print_summary "$IP_FILE" "${NODE_NAMES[@]}"
 
     # 清理临时文件
