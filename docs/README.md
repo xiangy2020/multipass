@@ -33,6 +33,9 @@
 # 创建 3 节点集群，每节点额外挂载 50G 数据盘到 /data
 ./tools/cluster/create-cluster.sh -n 3 -i centos:9 -c 4 -m 4G -d 50G -e 50G
 
+# 创建 3 节点集群，数据盘挂载到自定义目录 /mnt/storage
+./tools/cluster/create-cluster.sh -n 3 -i centos:9 -c 4 -m 4G -d 50G -e 50G -t /mnt/storage
+
 # 创建 3 节点 k3s Kubernetes 集群
 ./tools/cluster/create-cluster.sh -n 3 -k
 

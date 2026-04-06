@@ -6,20 +6,25 @@
 #   ./create-cluster.sh [选项]
 #
 # 选项:
-#   -n, --nodes     <数量>    节点数量（默认: 3）
-#   -i, --image     <镜像>    使用的镜像（默认: centos:9）
-#   -p, --prefix    <前缀>    节点名称前缀（默认: node）
-#   -c, --cpus      <核数>    每个节点的 CPU 核数（默认: 2）
-#   -m, --memory    <内存>    每个节点的内存大小（默认: 2G）
-#   -d, --disk      <磁盘>    每个节点的磁盘大小（默认: 20G）
-#   -k, --k8s               安装 k3s 轻量级 Kubernetes 集群
-#   -h, --help              显示帮助信息
+#   -n, --nodes      <数量>    节点数量（默认: 3）
+#   -i, --image      <镜像>    使用的镜像（默认: centos:9）
+#   -p, --prefix     <前缀>    节点名称前缀（默认: node）
+#   -c, --cpus       <核数>    每个节点的 CPU 核数（默认: 2）
+#   -m, --memory     <内存>    每个节点的内存大小（默认: 2G）
+#   -d, --disk       <磁盘>    每个节点的系统盘大小（默认: 20G）
+#   -e, --extra-disk <磁盘>    每个节点额外挂载的数据盘大小（如: 50G），不指定则不挂载
+#                              数据盘将格式化为 xfs，开机自动挂载
+#   -t, --mount-path <路径>    数据盘挂载目录（默认: /data），需以 / 开头
+#   -k, --k8s                 安装 k3s 轻量级 Kubernetes 集群
+#   -h, --help                显示帮助信息
 #
 # 示例:
-#   ./create-cluster.sh                          # 创建 3 节点 CentOS 9 集群
-#   ./create-cluster.sh -n 5 -i ubuntu:22.04    # 创建 5 节点 Ubuntu 集群
-#   ./create-cluster.sh -n 3 -i centos:8 -k     # 创建 3 节点 CentOS 8 k3s 集群
-#   ./create-cluster.sh -p master -n 1 -c 4 -m 4G  # 创建单个 master 节点
+#   ./create-cluster.sh                                    # 创建 3 节点 CentOS 9 集群
+#   ./create-cluster.sh -n 5 -i ubuntu:22.04              # 创建 5 节点 Ubuntu 集群
+#   ./create-cluster.sh -n 3 -i centos:8 -k               # 创建 3 节点 CentOS 8 k3s 集群
+#   ./create-cluster.sh -p master -n 1 -c 4 -m 4G        # 创建单个 master 节点
+#   ./create-cluster.sh -n 3 -e 50G                       # 创建 3 节点集群，每节点额外挂载 50G 数据盘到 /data
+#   ./create-cluster.sh -n 3 -e 50G -t /mnt/data         # 挂载到自定义目录 /mnt/data
 # =============================================================================
 
 set -euo pipefail
@@ -40,6 +45,8 @@ NAME_PREFIX="node"
 CPUS=2
 MEMORY="2G"
 DISK="20G"
+EXTRA_DISK=""       # 额外数据盘大小，空字符串表示不挂载
+MOUNT_PATH="/data"  # 数据盘挂载目录
 INSTALL_K3S=false
 
 # ─── 工具函数 ────────────────────────────────────────────────────────────────
@@ -69,14 +76,16 @@ check_dependencies() {
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            -n|--nodes)   NODE_COUNT="$2"; shift 2 ;;
-            -i|--image)   IMAGE="$2";      shift 2 ;;
-            -p|--prefix)  NAME_PREFIX="$2"; shift 2 ;;
-            -c|--cpus)    CPUS="$2";       shift 2 ;;
-            -m|--memory)  MEMORY="$2";     shift 2 ;;
-            -d|--disk)    DISK="$2";       shift 2 ;;
-            -k|--k8s)     INSTALL_K3S=true; shift ;;
-            -h|--help)    show_help ;;
+            -n|--nodes)       NODE_COUNT="$2"; shift 2 ;;
+            -i|--image)       IMAGE="$2";      shift 2 ;;
+            -p|--prefix)      NAME_PREFIX="$2"; shift 2 ;;
+            -c|--cpus)        CPUS="$2";       shift 2 ;;
+            -m|--memory)      MEMORY="$2";     shift 2 ;;
+            -d|--disk)        DISK="$2";       shift 2 ;;
+            -e|--extra-disk)  EXTRA_DISK="$2"; shift 2 ;;
+            -t|--mount-path)  MOUNT_PATH="$2"; shift 2 ;;
+            -k|--k8s)         INSTALL_K3S=true; shift ;;
+            -h|--help)        show_help ;;
             *) log_error "未知参数: $1"; show_help ;;
         esac
     done
@@ -88,6 +97,14 @@ parse_args() {
     fi
     if ! [[ "$CPUS" =~ ^[1-9][0-9]*$ ]]; then
         log_error "CPU 核数必须为正整数，当前值: $CPUS"
+        exit 1
+    fi
+    if [[ -n "$EXTRA_DISK" ]] && ! [[ "$EXTRA_DISK" =~ ^[1-9][0-9]*[KMGkmg]?$ ]]; then
+        log_error "额外数据盘大小格式不正确，示例: 50G、100G、512M"
+        exit 1
+    fi
+    if [[ -n "$EXTRA_DISK" && "$MOUNT_PATH" != /* ]]; then
+        log_error "挂载目录必须以 / 开头，当前值: $MOUNT_PATH"
         exit 1
     fi
 }
@@ -126,7 +143,7 @@ check_existing_nodes() {
     fi
 }
 
-# 生成 cloud-init 配置（注入 SSH 密钥互信 + 主机名解析）
+# 生成 cloud-init 配置（注入 SSH 密钥互信 + 主机名解析 + 可选数据盘）
 generate_cloud_init() {
     local node_names=("$@")
     local tmp_dir
@@ -140,9 +157,41 @@ generate_cloud_init() {
     local priv_key
     priv_key=$(cat "${ssh_key_file}")
 
+    # 将数据盘大小转换为 MB 数值（供 dd 使用）
+    local extra_disk_mb=0
+    if [[ -n "$EXTRA_DISK" ]]; then
+        local size_num size_unit
+        size_num=$(echo "$EXTRA_DISK" | sed 's/[KMGkmg]$//')
+        size_unit=$(echo "$EXTRA_DISK" | grep -oE '[KMGkmg]$' | tr '[:lower:]' '[:upper:]')
+        case "$size_unit" in
+            G) extra_disk_mb=$((size_num * 1024)) ;;
+            M) extra_disk_mb=$((size_num)) ;;
+            K) extra_disk_mb=$((size_num / 1024)) ;;
+            *) extra_disk_mb=$((size_num / 1024 / 1024)) ;;  # 纯字节
+        esac
+    fi
+
     # 为每个节点生成 cloud-init 配置
     for name in "${node_names[@]}"; do
         local cloud_init_file="${tmp_dir}/cloud-init-${name}.yaml"
+
+        # 构建额外数据盘的 runcmd 片段
+        local extra_disk_cmds=""
+        if [[ -n "$EXTRA_DISK" && $extra_disk_mb -gt 0 ]]; then
+            extra_disk_cmds="
+  # ── 创建并挂载额外数据盘（${EXTRA_DISK}）──
+  - echo '==> 创建数据盘镜像文件 /data-disk.img (${EXTRA_DISK})'
+  - dd if=/dev/zero of=/data-disk.img bs=1M count=${extra_disk_mb} status=none
+  - echo '==> 格式化数据盘为 xfs'
+  - mkfs.xfs -f /data-disk.img
+  - mkdir -p ${MOUNT_PATH}
+  - echo '==> 写入 fstab 实现开机自动挂载'
+  - echo '/data-disk.img ${MOUNT_PATH} xfs loop,defaults 0 0' >> /etc/fstab
+  - echo '==> 挂载数据盘到 ${MOUNT_PATH}'
+  - mount ${MOUNT_PATH}
+  - echo '==> 数据盘挂载完成'"
+        fi
+
         cat > "$cloud_init_file" <<YAML
 #cloud-config
 # Multipass 集群节点 cloud-init 配置 - ${name}
@@ -208,7 +257,7 @@ runcmd:
     EOF
   - chmod 600 /root/.ssh/config
   # 重启 SSH 服务
-  - systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || true
+  - systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || true${extra_disk_cmds}
 YAML
     done
 
@@ -223,7 +272,9 @@ launch_nodes() {
     local node_names=("$@")
 
     log_step "启动 ${#node_names[@]} 个节点（并行创建）"
-    log_info "镜像: ${IMAGE} | CPU: ${CPUS} 核 | 内存: ${MEMORY} | 磁盘: ${DISK}"
+    local disk_info="系统盘: ${DISK}"
+    [[ -n "$EXTRA_DISK" ]] && disk_info+=" | 数据盘: ${EXTRA_DISK} (挂载至 ${MOUNT_PATH})"
+    log_info "镜像: ${IMAGE} | CPU: ${CPUS} 核 | 内存: ${MEMORY} | ${disk_info}"
 
     local pids=()
     local log_files=()
@@ -413,6 +464,9 @@ print_summary() {
     echo -e "  查看所有节点: ${CYAN}multipass list${NC}"
     echo -e "  停止集群:    ${CYAN}multipass stop ${node_names[*]}${NC}"
     echo -e "  删除集群:    ${CYAN}multipass delete ${node_names[*]} --purge${NC}"
+    if [[ -n "$EXTRA_DISK" ]]; then
+        echo -e "  查看数据盘:   ${CYAN}multipass exec ${node_names[0]} -- df -h ${MOUNT_PATH}${NC}"
+    fi
     if [[ "$INSTALL_K3S" == "true" ]]; then
         echo -e "  查看 k8s 节点: ${CYAN}multipass exec ${node_names[0]} -- kubectl get nodes${NC}"
     fi
@@ -430,7 +484,9 @@ main() {
     echo -e "${NC}"
 
     log_info "配置: ${NODE_COUNT} 个节点 | 镜像: ${IMAGE} | 前缀: ${NAME_PREFIX}"
-    log_info "资源: ${CPUS} CPU | ${MEMORY} 内存 | ${DISK} 磁盘"
+    local disk_summary="系统盘: ${DISK}"
+    [[ -n "$EXTRA_DISK" ]] && disk_summary+=" | 数据盘: ${EXTRA_DISK} → ${MOUNT_PATH}"
+    log_info "资源: ${CPUS} CPU | ${MEMORY} 内存 | ${disk_summary}"
     [[ "$INSTALL_K3S" == "true" ]] && log_info "将安装 k3s Kubernetes 集群"
 
     # 1. 检查依赖

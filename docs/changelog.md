@@ -27,7 +27,8 @@
 | `-c, --cpus` | 每节点 CPU 核数 | 2 |
 | `-m, --memory` | 每节点内存 | 2G |
 | `-d, --disk` | 每节点系统盘大小 | 20G |
-| `-e, --extra-disk` | 每节点额外数据盘大小（挂载至 `/data`） | 不挂载 |
+| `-e, --extra-disk` | 每节点额外数据盘大小（挂载至 `MOUNT_PATH`） | 不挂载 |
+| `-t, --mount-path` | 数据盘挂载目录，需以 `/` 开头 | `/data` |
 | `-k, --k8s` | 安装 k3s Kubernetes 集群 | 否 |
 
 **使用示例：**
@@ -36,9 +37,11 @@
 # 创建 3 节点 CentOS 9 集群
 ./tools/cluster/create-cluster.sh
 
-# 创建 3 节点集群，每节点额外挂载 50G 数据盘
+# 创建 3 节点集群，每节点额外挂载 50G 数据盘到 /data
 ./tools/cluster/create-cluster.sh -n 3 -i centos:9 -c 4 -m 4G -d 50G -e 50G
 
+# 创建 3 节点集群，数据盘挂载到自定义目录 /mnt/storage
+./tools/cluster/create-cluster.sh -n 3 -i centos:9 -c 4 -m 4G -d 50G -e 50G -t /mnt/storage
 # 创建 3 节点 k3s Kubernetes 集群
 ./tools/cluster/create-cluster.sh -n 3 -i centos:9 -k
 
