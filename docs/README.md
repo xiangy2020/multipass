@@ -1,6 +1,6 @@
 # Multipass 技术文档索引
 
-> 最后更新：2026-04-06（新增多节点集群工具章节）
+> 最后更新：2026-04-06（新增多磁盘挂载支持章节）
 > 文档总数：4 个
 
 本目录包含 Multipass 项目的技术文档，由代码分析自动生成。
@@ -46,6 +46,22 @@
 # 查看完整参数说明
 ./tools/cluster/create-cluster.sh --help
 ```
+
+---
+
+## 新功能：多磁盘挂载支持（Extra Disks）
+
+Multipass 现已支持为虚拟机实例挂载多块额外数据磁盘，与系统盘完全独立。
+
+| 操作 | 命令 |
+|------|------|
+| launch 时添加额外磁盘 | `multipass launch --extra-disk 10G centos` |
+| 添加多块额外磁盘 | `multipass launch --extra-disk 10G --extra-disk 20G centos` |
+| 为已有实例添加磁盘 | `multipass set local.<name>.extra-disks=10G` |
+| 查看磁盘配置 | `multipass get local.<name>.extra-disks` |
+| 查看实例信息 | `multipass info <name>`（含 Extra disks 字段） |
+
+> 详细说明见 [changelog.md](./changelog.md)
 
 ---
 

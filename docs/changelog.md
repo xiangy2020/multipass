@@ -1,5 +1,61 @@
 # Changelog
 
+## [Unreleased] - 2026-04-06（多磁盘挂载支持）
+
+### 新增
+
+#### 多磁盘挂载支持（Extra Disks）
+
+为 Multipass 虚拟机实例添加了**多额外磁盘**能力，允许用户在创建实例时或为已有实例添加独立数据磁盘（与系统盘完全隔离）。
+
+**主要特性：**
+
+- **launch 时指定额外磁盘**：通过 `--extra-disk <size>` 参数，可重复使用以添加多块磁盘
+- **为已有实例添加磁盘**：通过 `multipass set local.<instance>.extra-disks=<size>` 为停止状态的实例追加磁盘
+- **自动 ID 递增**：磁盘设备 ID 从 `hdb` 开始自动递增（`hdb`、`hdc`、`hdd`…），避免与系统盘 `hda` 冲突
+- **持久化存储**：额外磁盘配置序列化到实例 JSON 配置文件，重启后自动挂载
+- **info 展示**：`multipass info` 输出中新增 `Extra disks` 字段，显示设备名和大小
+- **最小容量校验**：磁盘大小不得小于 1G，否则返回错误提示
+- **运行状态保护**：实例运行时拒绝添加磁盘，提示用户先停止实例
+- **快照/克隆支持**：快照创建/恢复、实例克隆时同步处理所有额外磁盘
+
+**使用示例：**
+
+```bash
+# launch 时添加一块 10G 额外磁盘
+multipass launch --extra-disk 10G centos
+
+# launch 时添加多块额外磁盘
+multipass launch --extra-disk 10G --extra-disk 20G centos --name my-vm
+
+# 为已有停止实例添加额外磁盘
+multipass set local.node1.extra-disks=10G
+
+# 查看额外磁盘配置
+multipass get local.node1.extra-disks
+# 输出：hdb:10.0GiB,hdc:20.0GiB
+
+# 查看实例信息（含额外磁盘）
+multipass info node1
+# 输出：
+#   Extra disks:    hdb (10.0GiB)
+#                   hdc (20.0GiB)
+
+# 在 VM 内查看磁盘
+multipass exec node1 -- lsblk
+# 输出：sdb (10G)、sdc (20G) 等额外块设备
+```
+
+**技术实现：**
+
+- 新增 `ExtraDisk` 结构体（`include/multipass/extra_disk.h`），包含 `id`、`path`、`size` 字段
+- `VirtualMachineDescription` 和 `VMSpecs` 均新增 `extra_disks` 字段，支持 JSON 序列化
+- QEMU 后端（`qemu_vm_process_spec.cpp`）自动为每块额外磁盘生成 `-drive` 和 `-device scsi-hd` 参数
+- `VirtualMachine` 接口新增 `add_extra_disk()` 虚方法，`QemuVirtualMachine` 实现内存中 desc 的实时同步
+- `instance_settings_handler.cpp` 处理 `set extra-disks` 逻辑，含磁盘文件创建和 VM 对象同步
+
+---
+
 ## [Unreleased] - 2026-04-06
 
 ### 新增
