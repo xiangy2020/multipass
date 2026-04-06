@@ -22,7 +22,8 @@
 
 | 脚本 | 说明 | 路径 |
 |------|------|------|
-| 多节点集群创建 | 一键创建 Multipass 多节点集群，支持并行启动、SSH 互信、/etc/hosts 解析、额外数据盘挂载、k3s 安装 | [tools/cluster/create-cluster.sh](../tools/cluster/create-cluster.sh) |
+| 多节点集群创建 | 一键创建 Multipass 多节点集群，支持并行启动、SSH 互信、/etc/hosts 解析、宿主机目录挂载数据盘、k3s 安装 | [tools/cluster/create-cluster.sh](../tools/cluster/create-cluster.sh) |
+| 集群删除清理 | 删除集群节点并同步清理宿主机数据目录 | [tools/cluster/delete-cluster.sh](../tools/cluster/delete-cluster.sh) |
 
 **快速使用：**
 
@@ -30,14 +31,17 @@
 # 创建 3 节点 CentOS 9 集群（默认）
 ./tools/cluster/create-cluster.sh
 
-# 创建 3 节点集群，每节点额外挂载 50G 数据盘到 /data
-./tools/cluster/create-cluster.sh -n 3 -i centos:9 -c 4 -m 4G -d 50G -e 50G
+# 创建 3 节点集群，每节点挂载独立数据盘到 /data（宿主机目录 ~/.multipass-data/node/nodeX/）
+./tools/cluster/create-cluster.sh -n 3 -i centos:9 -c 4 -m 4G -d 20G -e
 
 # 创建 3 节点集群，数据盘挂载到自定义目录 /mnt/storage
-./tools/cluster/create-cluster.sh -n 3 -i centos:9 -c 4 -m 4G -d 50G -e 50G -t /mnt/storage
+./tools/cluster/create-cluster.sh -n 3 -i centos:9 -c 4 -m 4G -d 20G -e -t /mnt/storage
 
 # 创建 3 节点 k3s Kubernetes 集群
 ./tools/cluster/create-cluster.sh -n 3 -k
+
+# 删除集群并清理宿主机数据目录
+./tools/cluster/delete-cluster.sh -p node
 
 # 查看完整参数说明
 ./tools/cluster/create-cluster.sh --help

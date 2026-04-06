@@ -15,7 +15,8 @@
 - **主机名解析**：自动配置 `/etc/hosts`，节点间可通过主机名互相访问
 - **cloud-init 集成**：自动注入 SSH 配置、密码登录、磁盘扩容等初始化配置
 - **k3s 支持**：通过 `-k` 参数一键安装轻量级 Kubernetes 集群
-- **额外数据盘**：通过 `-e/--extra-disk` 参数为每个节点挂载独立数据盘到 `/data`
+- **额外数据盘**：通过 `-e/--extra-disk` 参数为每个节点挂载独立数据盘（宿主机目录 → 虚拟机），与系统盘完全独立
+- **集群删除**：配套 `delete-cluster.sh` 脚本，一键删除集群并清理宿主机数据目录
 
 **参数说明：**
 
@@ -27,8 +28,8 @@
 | `-c, --cpus` | 每节点 CPU 核数 | 2 |
 | `-m, --memory` | 每节点内存 | 2G |
 | `-d, --disk` | 每节点系统盘大小 | 20G |
-| `-e, --extra-disk` | 每节点额外数据盘大小（挂载至 `MOUNT_PATH`） | 不挂载 |
-| `-t, --mount-path` | 数据盘挂载目录，需以 `/` 开头 | `/data` |
+| `-e, --extra-disk` | 为每节点挂载独立数据盘（宿主机目录 → 虚拟机），无需指定大小 | 不挂载 |
+| `-t, --mount-path` | 数据盘在虚拟机内的挂载目录，需以 `/` 开头 | `/data` |
 | `-k, --k8s` | 安装 k3s Kubernetes 集群 | 否 |
 
 **使用示例：**
@@ -37,16 +38,51 @@
 # 创建 3 节点 CentOS 9 集群
 ./tools/cluster/create-cluster.sh
 
-# 创建 3 节点集群，每节点额外挂载 50G 数据盘到 /data
-./tools/cluster/create-cluster.sh -n 3 -i centos:9 -c 4 -m 4G -d 50G -e 50G
+# 创建 3 节点集群，每节点挂载独立数据盘到 /data（宿主机目录 ~/.multipass-data/node/nodeX/）
+./tools/cluster/create-cluster.sh -n 3 -i centos:9 -c 4 -m 4G -d 20G -e
 
 # 创建 3 节点集群，数据盘挂载到自定义目录 /mnt/storage
-./tools/cluster/create-cluster.sh -n 3 -i centos:9 -c 4 -m 4G -d 50G -e 50G -t /mnt/storage
+./tools/cluster/create-cluster.sh -n 3 -i centos:9 -c 4 -m 4G -d 20G -e -t /mnt/storage
+
 # 创建 3 节点 k3s Kubernetes 集群
 ./tools/cluster/create-cluster.sh -n 3 -i centos:9 -k
 
 # 验证数据盘挂载
-multipass exec node1 -- df -h /data
+multipass exec node1 -- ls /data
+
+# 删除集群并清理宿主机数据目录
+./tools/cluster/delete-cluster.sh -p node
+```
+
+---
+
+#### 集群删除工具（`tools/cluster/delete-cluster.sh`）
+
+新增集群删除脚本，配合 `create-cluster.sh` 使用，一键完成集群清理：
+
+1. 自动卸载所有节点的 `multipass mount` 挂载
+2. 删除并清除所有节点（`multipass delete --purge`）
+3. 清理宿主机数据目录 `~/.multipass-data/<prefix>/`
+
+**参数说明：**
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `-p, --prefix` | 节点名称前缀 | `node` |
+| `-n, --nodes` | 节点数量（不指定则自动检测） | 自动检测 |
+| `-y, --yes` | 跳过确认提示 | 否 |
+
+**使用示例：**
+
+```bash
+# 删除默认前缀 node 的集群
+./tools/cluster/delete-cluster.sh
+
+# 删除前缀为 master 的集群
+./tools/cluster/delete-cluster.sh -p master
+
+# 跳过确认直接删除
+./tools/cluster/delete-cluster.sh -p node -y
 ```
 
 ---
