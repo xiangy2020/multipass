@@ -12,7 +12,8 @@
 #   -c, --cpus       <核数>    每个节点的 CPU 核数（默认: 2）
 #   -m, --memory     <内存>    每个节点的内存大小（默认: 2G）
 #   -d, --disk       <磁盘>    每个节点的系统盘大小（默认: 20G）
-#   -e, --extra-disk           为每个节点挂载独立数据盘（宿主机目录挂载到虚拟机）
+#   -e, --extra-disk [大小]    为每个节点挂载独立数据盘（宿主机目录挂载到虚拟机）
+#                              可选指定大小（如: 50G），仅作记录展示，不限制实际容量
 #                              数据目录统一存放在 ~/.multipass-data/<prefix>/<node>/
 #                              与虚拟机系统盘完全独立，互不影响
 #   -t, --mount-path <路径>    数据盘在虚拟机内的挂载目录（默认: /data），需以 / 开头
@@ -25,7 +26,7 @@
 #   ./create-cluster.sh -n 3 -i centos:8 -k               # 创建 3 节点 CentOS 8 k3s 集群
 #   ./create-cluster.sh -p master -n 1 -c 4 -m 4G        # 创建单个 master 节点
 #   ./create-cluster.sh -n 3 -e                           # 创建 3 节点集群，每节点挂载独立数据盘到 /data
-#   ./create-cluster.sh -n 3 -e -t /mnt/data             # 数据盘挂载到自定义目录 /mnt/data
+#   ./create-cluster.sh -n 3 -e 50G -t /data1            # 挂载数据盘到 /data1，标注大小 50G
 # =============================================================================
 
 set -euo pipefail
@@ -47,6 +48,7 @@ CPUS=2
 MEMORY="2G"
 DISK="20G"
 EXTRA_DISK=false    # 是否挂载额外数据盘（宿主机目录 → 虚拟机）
+EXTRA_DISK_SIZE=""  # 数据盘大小标注（可选，仅展示用）
 MOUNT_PATH="/data"  # 数据盘在虚拟机内的挂载目录
 DATA_BASE_DIR="${HOME}/.multipass-data"  # 宿主机数据盘根目录
 INSTALL_K3S=false
@@ -84,7 +86,16 @@ parse_args() {
             -c|--cpus)        CPUS="$2";       shift 2 ;;
             -m|--memory)      MEMORY="$2";     shift 2 ;;
             -d|--disk)        DISK="$2";       shift 2 ;;
-            -e|--extra-disk)  EXTRA_DISK=true; shift ;;
+            -e|--extra-disk)
+                EXTRA_DISK=true
+                # 判断下一个参数是否为大小值（如 50G、100G）
+                if [[ $# -gt 1 && "$2" =~ ^[1-9][0-9]*[KMGkmg]?$ ]]; then
+                    EXTRA_DISK_SIZE="$2"
+                    shift 2
+                else
+                    shift
+                fi
+                ;;
             -t|--mount-path)  MOUNT_PATH="$2"; shift 2 ;;
             -k|--k8s)         INSTALL_K3S=true; shift ;;
             -h|--help)        show_help ;;
@@ -266,7 +277,11 @@ launch_nodes() {
 
     log_step "启动 ${#node_names[@]} 个节点（并行创建）"
     local disk_info="系统盘: ${DISK}"
-    [[ "$EXTRA_DISK" == "true" ]] && disk_info+=" | 数据盘: 宿主机目录挂载 → ${MOUNT_PATH}"
+    if [[ "$EXTRA_DISK" == "true" ]]; then
+        local data_label="宿主机目录挂载 → ${MOUNT_PATH}"
+        [[ -n "$EXTRA_DISK_SIZE" ]] && data_label="${EXTRA_DISK_SIZE} 宿主机目录挂载 → ${MOUNT_PATH}"
+        disk_info+=" | 数据盘: ${data_label}"
+    fi
     log_info "镜像: ${IMAGE} | CPU: ${CPUS} 核 | 内存: ${MEMORY} | ${disk_info}"
 
     local pids=()
@@ -481,7 +496,11 @@ main() {
 
     log_info "配置: ${NODE_COUNT} 个节点 | 镜像: ${IMAGE} | 前缀: ${NAME_PREFIX}"
     local disk_summary="系统盘: ${DISK}"
-    [[ "$EXTRA_DISK" == "true" ]] && disk_summary+=" | 数据盘: 宿主机目录 → ${MOUNT_PATH}"
+    if [[ "$EXTRA_DISK" == "true" ]]; then
+        local data_label="宿主机目录 → ${MOUNT_PATH}"
+        [[ -n "$EXTRA_DISK_SIZE" ]] && data_label="${EXTRA_DISK_SIZE} 宿主机目录 → ${MOUNT_PATH}"
+        disk_summary+=" | 数据盘: ${data_label}"
+    fi
     log_info "资源: ${CPUS} CPU | ${MEMORY} 内存 | ${disk_summary}"
     [[ "$INSTALL_K3S" == "true" ]] && log_info "将安装 k3s Kubernetes 集群"
 
