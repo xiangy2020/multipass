@@ -170,24 +170,15 @@ generate_cloud_init() {
     for name in "${node_names[@]}"; do
         local cloud_init_file="${tmp_dir}/cloud-init-${name}.yaml"
 
-        # 有数据盘时禁用 growpart（防止系统盘自动扩到整块磁盘，留空间给数据分区）
-        local growpart_config
-        if [[ "$EXTRA_DISK" == "true" ]]; then
-            growpart_config="growpart:
-  mode: off"
-        else
-            growpart_config="growpart:
-  mode: auto
-  devices: [\"/\"]
-  ignore_growroot_disabled: false"
-        fi
-
         cat > "$cloud_init_file" <<YAML
 #cloud-config
 # Multipass 集群节点 cloud-init 配置 - ${name}
 
-# 磁盘扩容配置
-${growpart_config}
+# 磁盘自动扩容（growpart 在 bootcmd 之后、runcmd 之前执行）
+growpart:
+  mode: auto
+  devices: ["/"]
+  ignore_growroot_disabled: false
 
 # 主机名解析（集群内所有节点）
 manage_etc_hosts: true
@@ -247,56 +238,51 @@ runcmd:
   - systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || true
 YAML
 
-        # 如果需要额外数据分区，追加 parted 分区初始化命令到 cloud-init
+        # 如果需要额外数据分区，在主 YAML 之前插入 bootcmd，并追加数据盘 runcmd 步骤
         if [[ "$EXTRA_DISK" == "true" ]]; then
+            # 在文件末尾追加 bootcmd（cloud-init 允许 bootcmd 在文件任意位置）
             cat >> "$cloud_init_file" <<YAML
-  # 创建数据分区（真实磁盘分区，与系统分区物理隔离）
+  # 格式化数据分区并挂载（分区由 bootcmd 提前创建）
   - |
     set -e
     MOUNT_POINT="${MOUNT_PATH}"
-    SYS_DISK_GB="${DISK%[Gg]*}"
-    # 找到系统盘设备（通常是 sda 或 vda）
     DISK_DEV=\$(lsblk -dpno NAME,TYPE | awk '\$2=="disk"{print \$1}' | grep -v loop | head -1)
-    DISK_NAME=\$(basename \${DISK_DEV})
-    # 获取扇区大小（通常 512 字节）
-    SECTOR_SIZE=\$(cat /sys/block/\${DISK_NAME}/queue/logical_block_size 2>/dev/null || echo 512)
-    # 计算系统盘应占用的扇区数（系统盘大小 GB → 扇区）
-    SYS_SECTORS=\$((SYS_DISK_GB * 1024 * 1024 * 1024 / SECTOR_SIZE))
-    # 获取磁盘总扇区数
-    TOTAL_SECTORS=\$(cat /sys/block/\${DISK_NAME}/size)
-    # 找到系统根分区编号（挂载在 / 的分区）
-    ROOT_PART=\$(findmnt -n -o SOURCE / | sed 's|/dev/||')
-    ROOT_PART_NUM=\$(echo \${ROOT_PART} | grep -o '[0-9]*\$')
-    # 第一步：把系统根分区扩容到系统盘大小（留出数据盘空间）
-    # 系统盘结束扇区 = 系统盘大小 - 1（留 1 扇区边界）
-    SYS_END=\$((SYS_SECTORS - 1))
-    parted -s \${DISK_DEV} resizepart \${ROOT_PART_NUM} \${SYS_END}s 2>/dev/null || true
-    # 通知内核分区表变更
-    partprobe \${DISK_DEV} 2>/dev/null || true
-    sleep 1
-    udevadm settle 2>/dev/null || true
-    # 扩展 xfs 文件系统到新分区大小
-    xfs_growfs / 2>/dev/null || true
-    # 第二步：在剩余空间创建数据分区
-    DATA_START=\$((SYS_END + 1))
-    DATA_END=\$((TOTAL_SECTORS - 1))
-    parted -s \${DISK_DEV} mkpart primary xfs \${DATA_START}s \${DATA_END}s
-    # 等待内核识别新分区
-    partprobe \${DISK_DEV} 2>/dev/null || true
-    sleep 2
-    udevadm settle 2>/dev/null || true
-    # 找到新分区设备名（最后一个分区）
-    NEW_PART=\$(lsblk -lpno NAME \${DISK_DEV} | grep -v "^\${DISK_DEV}\$" | tail -1)
+    # 找到第 3 个分区（bootcmd 创建的数据分区）
+    DATA_PART=\$(lsblk -lpno NAME \${DISK_DEV} | grep -v "^\${DISK_DEV}\$" | sed -n '3p')
+    if [[ -z "\${DATA_PART}" ]]; then
+      echo "ERROR: 数据分区未找到" >&2
+      exit 1
+    fi
     # 格式化为 xfs
-    mkfs.xfs -f \${NEW_PART}
+    mkfs.xfs -f \${DATA_PART}
     # 创建挂载点
     mkdir -p \${MOUNT_POINT}
     # 获取分区 UUID
-    PART_UUID=\$(blkid -s UUID -o value \${NEW_PART})
-    # 写入 fstab 实现开机自动挂载
+    PART_UUID=\$(blkid -s UUID -o value \${DATA_PART})
+    # 写入 fstab
     echo "UUID=\${PART_UUID} \${MOUNT_POINT} xfs defaults 0 0" >> /etc/fstab
     # 挂载
     mount \${MOUNT_POINT}
+
+# bootcmd 在 growpart 之前执行：提前在磁盘末尾创建数据分区占位
+# growpart 扩容 sda2 时只能扩到 sda3 之前，不会占满整块磁盘
+bootcmd:
+  - |
+    set -e
+    EXTRA_GB="${EXTRA_DISK_SIZE%[Gg]*}"
+    DISK_DEV=\$(lsblk -dpno NAME,TYPE | awk '\$2=="disk"{print \$1}' | grep -v loop | head -1)
+    DISK_NAME=\$(basename \${DISK_DEV})
+    SECTOR_SIZE=\$(cat /sys/block/\${DISK_NAME}/queue/logical_block_size 2>/dev/null || echo 512)
+    TOTAL_SECTORS=\$(cat /sys/block/\${DISK_NAME}/size)
+    # 数据分区从磁盘末尾往前数 EXTRA_GB 的位置开始
+    DATA_SECTORS=\$((EXTRA_GB * 1024 * 1024 * 1024 / SECTOR_SIZE))
+    DATA_START=\$((TOTAL_SECTORS - DATA_SECTORS))
+    DATA_END=\$((TOTAL_SECTORS - 1))
+    # 幂等：检查是否已经创建过
+    if ! parted -s \${DISK_DEV} print 2>/dev/null | grep -q "^ 3"; then
+      parted -s \${DISK_DEV} mkpart primary xfs \${DATA_START}s \${DATA_END}s
+      partprobe \${DISK_DEV} 2>/dev/null || true
+    fi
 YAML
         fi
     done
