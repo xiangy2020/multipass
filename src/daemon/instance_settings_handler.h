@@ -21,6 +21,7 @@
 #include <multipass/network_interface_info.h>
 #include <multipass/settings/settings_handler.h>
 #include <multipass/virtual_machine.h>
+#include <multipass/virtual_machine_factory.h>
 #include <multipass/vm_specs.h>
 
 #include <QString>
@@ -43,7 +44,8 @@ public:
         const std::unordered_set<std::string>& preparing_instances,
         std::function<void()> instance_persister,
         std::function<bool(const std::string&)> is_bridged,
-        std::function<void(const std::string&)> add_interface);
+        std::function<void(const std::string&)> add_interface,
+        VirtualMachineFactory* factory = nullptr);
 
     std::set<QString> keys() const override;
     QString get(const QString& key) const override;
@@ -63,6 +65,7 @@ private:
     std::function<void()> instance_persister;
     std::function<bool(const std::string&)> is_bridged;
     std::function<void(const std::string&)> add_interface;
+    VirtualMachineFactory* factory; // 可为 nullptr，用于创建额外磁盘
 };
 
 class InstanceSettingsException : public SettingsException

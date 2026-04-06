@@ -25,6 +25,8 @@
 #include <QRegularExpression>
 #include <QStringList>
 
+#include <filesystem>
+
 namespace mp = multipass;
 
 namespace
@@ -33,6 +35,7 @@ constexpr auto cpus_suffix = "cpus";
 constexpr auto mem_suffix = "memory";
 constexpr auto disk_suffix = "disk";
 constexpr auto bridged_suffix = "bridged";
+constexpr auto extra_disks_suffix = "extra-disks";
 
 enum class Operation
 {
@@ -51,7 +54,8 @@ QRegularExpression make_key_regex()
     const auto instance_pattern = QStringLiteral("(?<instance>.+)");
     const auto prop_template = QStringLiteral("(?<property>%1)");
     const auto either_prop =
-        QStringList{cpus_suffix, mem_suffix, disk_suffix, bridged_suffix}.join("|");
+        QStringList{cpus_suffix, mem_suffix, disk_suffix, bridged_suffix, extra_disks_suffix}.join(
+            "|");
     const auto prop_pattern = prop_template.arg(either_prop);
 
     const auto key_template = QStringLiteral(R"(%1\.%2\.%3)");
@@ -211,14 +215,16 @@ mp::InstanceSettingsHandler::InstanceSettingsHandler(
     const std::unordered_set<std::string>& preparing_instances,
     std::function<void()> instance_persister,
     std::function<bool(const std::string&)> is_bridged,
-    std::function<void(const std::string&)> add_interface)
+    std::function<void(const std::string&)> add_interface,
+    VirtualMachineFactory* factory)
     : vm_instance_specs{vm_instance_specs},
       operative_instances{operative_instances},
       deleted_instances{deleted_instances},
       preparing_instances{preparing_instances},
       instance_persister{std::move(instance_persister)},
       is_bridged{is_bridged},
-      add_interface{add_interface}
+      add_interface{add_interface},
+      factory{factory}
 {
 }
 
@@ -228,7 +234,8 @@ std::set<QString> mp::InstanceSettingsHandler::keys() const
 
     std::set<QString> ret;
     for (const auto& item : vm_instance_specs)
-        for (const auto& suffix : {cpus_suffix, mem_suffix, disk_suffix, bridged_suffix})
+        for (const auto& suffix :
+             {cpus_suffix, mem_suffix, disk_suffix, bridged_suffix, extra_disks_suffix})
             ret.insert(key_template.arg(item.first.c_str()).arg(suffix));
 
     return ret;
@@ -249,6 +256,14 @@ QString mp::InstanceSettingsHandler::get(const QString& key) const
         return QString::fromStdString(
             spec.mem_size.human_readable()); /* TODO return in bytes when --raw
                                                 (need unmarshall capability, w/ flag) */
+    if (property == extra_disks_suffix)
+    {
+        // 返回额外磁盘列表，格式："hdb:10G,hdc:20G"
+        QStringList disks;
+        for (const auto& d : spec.extra_disks)
+            disks << QString::fromStdString(d.id + ":" + d.size.human_readable());
+        return disks.isEmpty() ? "" : disks.join(",");
+    }
 
     assert(property == disk_suffix);
     return QString::fromStdString(spec.disk_space.human_readable()); // TODO idem
@@ -273,6 +288,42 @@ void mp::InstanceSettingsHandler::set(const QString& key, const QString& val)
     else if (property == bridged_suffix)
     {
         update_bridged(key, val, instance_name, is_bridged, add_interface);
+    }
+    else if (property == extra_disks_suffix)
+    {
+        // val 为磁盘大小，如 "10G"
+        if (!factory)
+            throw mp::InvalidSettingException{key, val, "Backend does not support extra disks"};
+
+        static const auto min_extra_disk = mp::MemorySize{"1G"};
+        mp::MemorySize disk_size;
+        try
+        {
+            disk_size = mp::MemorySize{val.toStdString()};
+        }
+        catch (const mp::InvalidMemorySizeException& e)
+        {
+            throw mp::InvalidSettingException{key, val, e.what()};
+        }
+        if (disk_size < min_extra_disk)
+            throw mp::InvalidSettingException{key, val, "Extra disk size must be at least 1G"};
+
+        // 生成新磁盘 ID：在现有额外磁盘基础上递增
+        char next_id_char = 'b';
+        for (const auto& d : spec.extra_disks)
+            if (!d.id.empty() && d.id.back() >= next_id_char)
+                next_id_char = d.id.back() + 1;
+        std::string disk_id = std::string("hd") + next_id_char;
+
+        // 获取实例目录
+        const auto instance_dir =
+            factory->get_instance_directory(instance_name).toStdString();
+        std::filesystem::path disk_path =
+            std::filesystem::path{instance_dir} /
+            fmt::format("{}-extra-disk-{}.qcow2", instance_name, spec.extra_disks.size());
+
+        factory->create_extra_disk(disk_size, disk_path);
+        spec.extra_disks.push_back({disk_id, disk_path.string(), disk_size});
     }
     else
     {

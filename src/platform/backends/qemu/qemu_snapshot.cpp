@@ -26,6 +26,7 @@
 
 #include <scope_guard.hpp>
 
+#include <filesystem>
 #include <memory>
 
 namespace mp = multipass;
@@ -93,6 +94,14 @@ void mp::QemuSnapshot::capture_impl()
             tag)};
 
     mp::backend::checked_exec_qemu_img(make_capture_spec(tag, image_path));
+
+    // 对所有额外磁盘也创建快照
+    for (const auto& extra_disk : desc.extra_disks)
+    {
+        const std::filesystem::path disk_path{extra_disk.path};
+        if (std::filesystem::exists(disk_path))
+            mp::backend::checked_exec_qemu_img(make_capture_spec(tag, disk_path));
+    }
 }
 
 void mp::QemuSnapshot::erase_impl()
@@ -106,6 +115,15 @@ void mp::QemuSnapshot::erase_impl()
                   "gone. Image: {}; tag: {}",
                   image_path,
                   tag);
+
+    // 删除额外磁盘的快照
+    for (const auto& extra_disk : desc.extra_disks)
+    {
+        const std::filesystem::path disk_path{extra_disk.path};
+        if (std::filesystem::exists(disk_path) &&
+            backend::instance_image_has_snapshot(disk_path, tag))
+            mp::backend::checked_exec_qemu_img(make_delete_spec(tag, disk_path));
+    }
 }
 
 void mp::QemuSnapshot::apply_impl()
@@ -120,5 +138,14 @@ void mp::QemuSnapshot::apply_impl()
     desc.extra_interfaces = get_extra_interfaces();
 
     mp::backend::checked_exec_qemu_img(make_restore_spec(get_id(), image_path));
+
+    // 恢复额外磁盘快照
+    for (const auto& extra_disk : desc.extra_disks)
+    {
+        const std::filesystem::path disk_path{extra_disk.path};
+        if (std::filesystem::exists(disk_path))
+            mp::backend::checked_exec_qemu_img(make_restore_spec(get_id(), disk_path));
+    }
+
     rollback.dismiss();
 }

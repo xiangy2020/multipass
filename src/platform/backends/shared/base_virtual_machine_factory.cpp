@@ -120,12 +120,22 @@ mp::VirtualMachine::UPtr mp::BaseVirtualMachineFactory::clone_bare_vm(
                                               cloud_init_path);
 
     // start to construct VirtualMachineDescription
+    // 更新 extra_disks 路径：将源实例目录替换为目标实例目录
+    auto dest_extra_disks = dest_spec.extra_disks;
+    for (auto& disk : dest_extra_disks)
+    {
+        const fs::path src_disk_path{disk.path};
+        const fs::path dest_disk_path = dest_instance_dir / src_disk_path.filename();
+        disk.path = dest_disk_path.string();
+    }
+
     mp::VirtualMachineDescription dest_vm_desc{dest_spec.num_cores,
                                                dest_spec.mem_size,
                                                dest_spec.disk_space,
                                                dest_name,
                                                dest_spec.default_mac_address,
                                                dest_spec.extra_interfaces,
+                                               dest_extra_disks,
                                                dest_spec.ssh_username,
                                                dest_image,
                                                cloud_init_path.string().c_str(),

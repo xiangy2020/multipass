@@ -71,6 +71,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <filesystem>
 #include <functional>
 #include <optional>
 #include <stdexcept>
@@ -1206,7 +1207,8 @@ mp::SettingsHandler* register_instance_mod(
     const std::unordered_set<std::string>& preparing_instances,
     std::function<void()> instance_persister,
     std::function<bool(const std::string&)> is_bridged,
-    std::function<void(const std::string&)> add_interface)
+    std::function<void(const std::string&)> add_interface,
+    mp::VirtualMachineFactory* factory = nullptr)
 {
     return MP_SETTINGS.register_handler(
         std::make_unique<mp::InstanceSettingsHandler>(vm_instance_specs,
@@ -1215,7 +1217,8 @@ mp::SettingsHandler* register_instance_mod(
                                                       preparing_instances,
                                                       std::move(instance_persister),
                                                       is_bridged,
-                                                      add_interface));
+                                                      add_interface,
+                                                      factory));
 }
 
 mp::SettingsHandler* register_snapshot_mod(
@@ -1353,7 +1356,8 @@ mp::Daemon::Daemon(std::unique_ptr<const DaemonConfig> the_config)
           preparing_instances,
           [this] { persist_instances(); },
           [this](const std::string& n) { return is_bridged(n); },
-          [this](const std::string& n) { return add_bridged_interface(n); })},
+          [this](const std::string& n) { return add_bridged_interface(n); },
+          config->factory.get())},
       snapshot_mod_handler{register_snapshot_mod(operative_instances,
                                                  deleted_instances,
                                                  preparing_instances,
@@ -3952,6 +3956,19 @@ mp::VMSpecs mp::Daemon::clone_spec(const VMSpecs& src_vm_spec,
         {
             extra_interface.mac_address = generate_unused_mac_address(allocated_mac_addrs);
         }
+    }
+
+    // 更新 extra_disks 路径：将源实例目录替换为目标实例目录
+    const auto src_instance_dir =
+        config->factory->get_instance_directory(src_name).toStdString();
+    const auto dest_instance_dir =
+        config->factory->get_instance_directory(dest_name).toStdString();
+    for (auto& disk : dest_vm_spec.extra_disks)
+    {
+        const std::filesystem::path src_disk_path{disk.path};
+        const std::filesystem::path dest_disk_path =
+            std::filesystem::path{dest_instance_dir} / src_disk_path.filename();
+        disk.path = dest_disk_path.string();
     }
 
     // non qemu snapshot files do not have metadata
