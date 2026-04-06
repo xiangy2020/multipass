@@ -323,7 +323,9 @@ void mp::InstanceSettingsHandler::set(const QString& key, const QString& val)
             fmt::format("{}-extra-disk-{}.qcow2", instance_name, spec.extra_disks.size());
 
         factory->create_extra_disk(disk_size, disk_path);
-        spec.extra_disks.push_back({disk_id, disk_path.string(), disk_size});
+        ExtraDisk new_disk{disk_id, disk_path.string(), disk_size};
+        spec.extra_disks.push_back(new_disk);
+        instance.add_extra_disk(new_disk); // 同步更新 VM 对象内部的 desc，使下次 start 生效
     }
     else
     {

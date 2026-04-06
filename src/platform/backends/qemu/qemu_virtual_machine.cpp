@@ -725,6 +725,11 @@ void mp::QemuVirtualMachine::resize_disk(const MemorySize& new_size)
     desc.disk_space = new_size;
 }
 
+void mp::QemuVirtualMachine::add_extra_disk(const ExtraDisk& disk)
+{
+    desc.extra_disks.push_back(disk);
+}
+
 void mp::QemuVirtualMachine::add_network_interface(int /* not used on this backend */,
                                                    const std::string& default_mac_addr,
                                                    const NetworkInterface& extra_interface)

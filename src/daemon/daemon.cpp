@@ -3273,7 +3273,8 @@ void mp::Daemon::create_vm(const CreateRequest* request,
                 MemorySize{request->disk_space().empty() ? "0b" : request->disk_space()},
                 name,
                 "",
-                {},
+                {}, // extra_interfaces
+                {}, // extra_disks
                 config->ssh_username,
                 VMImage{},
                 "",
@@ -3367,7 +3368,7 @@ void mp::Daemon::create_vm(const CreateRequest* request,
 
             // 创建额外数据磁盘镜像文件
             const auto instance_dir =
-                mpu::base_dir(MP_PLATFORM.path_to_qstr(vm_image.image_path)).toStdString();
+                mpu::base_dir(MP_PLATFORM.path_to_qstr(vm_image.image_path)).path().toStdString();
             char disk_id_char = 'b'; // 系统盘为 hda，额外磁盘从 hdb 开始
             for (size_t i = 0; i < checked_args.extra_disk_sizes.size(); ++i)
             {

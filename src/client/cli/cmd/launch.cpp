@@ -25,6 +25,7 @@
 #include <multipass/cli/prompters.h>
 #include <multipass/constants.h>
 #include <multipass/exceptions/cmd_exceptions.h>
+#include <multipass/exceptions/invalid_memory_size_exception.h>
 #include <multipass/exceptions/snap_environment_exception.h>
 #include <multipass/file_ops.h>
 #include <multipass/format.h>
