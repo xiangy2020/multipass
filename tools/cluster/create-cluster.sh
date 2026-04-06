@@ -205,20 +205,29 @@ generate_cloud_init() {
 # 主机名解析（集群内所有节点）
 manage_etc_hosts: true
 
-# 用户配置
+# 用户配置（新版 cloud-init 语法，兼容 22.2+）
 users:
+  - name: root
+    lock_passwd: false
+    hashed_passwd: "\$6\$rounds=4096\$saltsalt\$IxDD3jeSOb5eB1CX5LBsqZFVkJdido3OUILO5Bta47XHX3Do6LksvFyH7YJ0orTHOptflrf3OoDIm/ZgxZt4."
   - default
 
 # 启用 SSH 密码认证
 ssh_pwauth: true
 
-# 设置密码
+# 设置密码（兼容旧版 cloud-init）
 chpasswd:
   expire: false
-  list:
-    - root:root
-    - centos:centos
-    - ubuntu:ubuntu
+  users:
+    - name: root
+      password: root
+      type: text
+    - name: centos
+      password: centos
+      type: text
+    - name: ubuntu
+      password: ubuntu
+      type: text
 
 # 写入集群 SSH 密钥和配置
 write_files:
@@ -241,6 +250,9 @@ $(echo "$priv_key" | sed 's/^/      /')
 
 # 初始化命令
 runcmd:
+  # 兜底：确保 root 密码设置成功并解锁（防止 chpasswd 在某些发行版失效）
+  - echo 'root:root' | chpasswd
+  - passwd -u root 2>/dev/null || true
   # 将集群公钥加入 authorized_keys（节点间免密登录）
   - mkdir -p /root/.ssh
   - chmod 700 /root/.ssh
