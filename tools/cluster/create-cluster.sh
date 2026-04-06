@@ -20,6 +20,8 @@
 #                              在虚拟机内格式化为 xfs 后挂载到指定目录
 #   -t, --mount-path <路径>    数据盘在虚拟机内的挂载目录（默认: /data），需以 / 开头
 #   -k, --k8s                 安装 k3s 轻量级 Kubernetes 集群
+#   -T, --tdsql-init          启用 TDSQL 节点初始化（关闭 SELinux/防火墙/NetworkManager，配置时区和 chrony）
+#       --ntp-server <地址>   NTP 服务器地址（默认: ntp.aliyun.com，仅 --tdsql-init 时生效）
 #   -h, --help                显示帮助信息
 #
 # 示例:
@@ -31,6 +33,8 @@
 #   ./create-cluster.sh -N master,worker1,worker2 -k           # 创建自定义名称的 k3s 集群
 #   ./create-cluster.sh -n 3 -e                                # 创建 3 节点集群，每节点额外数据盘 20G，挂载到 /data
 #   ./create-cluster.sh -n 3 -e 50G -t /data1                 # 系统盘 20G + 独立数据盘 50G，挂载到 /data1
+#   ./create-cluster.sh -n 3 -T                               # 创建 3 节点集群并执行 TDSQL 初始化
+#   ./create-cluster.sh -n 3 -T --ntp-server 192.168.1.100    # 指定 NTP 服务器的 TDSQL 初始化
 # =============================================================================
 
 set -euo pipefail
@@ -56,6 +60,8 @@ EXTRA_DISK=false        # 是否添加独立数据磁盘
 EXTRA_DISK_SIZE="20G"   # 数据磁盘大小（默认 20G）
 MOUNT_PATH="/data"      # 数据磁盘在虚拟机内的挂载目录
 INSTALL_K3S=false
+TDSQL_INIT=false        # 是否执行 TDSQL 节点初始化
+NTP_SERVER="ntp.aliyun.com" # NTP 服务器地址（TDSQL 初始化时使用）
 
 # ─── 工具函数 ────────────────────────────────────────────────────────────────
 log_info()    { echo -e "${GREEN}[INFO]${NC}  $*"; }
@@ -103,6 +109,8 @@ parse_args() {
                 ;;
             -t|--mount-path)  MOUNT_PATH="$2"; shift 2 ;;
             -k|--k8s)         INSTALL_K3S=true; shift ;;
+            -T|--tdsql-init)  TDSQL_INIT=true; shift ;;
+            --ntp-server)     NTP_SERVER="$2"; shift 2 ;;
             -h|--help)        show_help ;;
             *) log_error "未知参数: $1"; show_help ;;
         esac
@@ -271,6 +279,33 @@ runcmd:
   # 重启 SSH 服务
   - systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || true
 YAML
+
+        # 如果启用 TDSQL 初始化，追加初始化命令
+        if [[ "$TDSQL_INIT" == "true" ]]; then
+            cat >> "$cloud_init_file" <<YAML
+  # ── TDSQL 节点初始化 ──────────────────────────────────────────────────────
+  # 1. 关闭 SELinux（临时 + 永久）
+  - setenforce 0 2>/dev/null || true
+  - sed -i 's/^SELINUX=.*/SELINUX=disabled/' /etc/selinux/config 2>/dev/null || true
+  # 2. 关闭防火墙
+  - systemctl disable firewalld 2>/dev/null || true
+  - systemctl stop firewalld 2>/dev/null || true
+  # 3. 关闭 NetworkManager
+  - systemctl stop NetworkManager 2>/dev/null || true
+  - systemctl disable NetworkManager 2>/dev/null || true
+  # 4. 设置时区
+  - timedatectl set-timezone Asia/Shanghai
+  # 5. 关闭 ntpd（若存在）
+  - systemctl stop ntpd 2>/dev/null || true
+  - systemctl disable ntpd 2>/dev/null || true
+  # 6. 安装并配置 chrony
+  - yum install -y chrony
+  - sed -i 's/^server /#server /' /etc/chrony.conf
+  - echo 'server ${NTP_SERVER} iburst' >> /etc/chrony.conf
+  - systemctl enable chronyd
+  - systemctl restart chronyd
+YAML
+        fi
 
         # 如果需要额外数据磁盘，追加格式化+挂载命令
         # multipass --extra-disk 会将额外磁盘挂载为 /dev/sdb（第二块独立磁盘）
@@ -527,6 +562,10 @@ print_summary() {
     if [[ "$INSTALL_K3S" == "true" ]]; then
         echo -e "  查看 k8s 节点: ${CYAN}multipass exec ${node_names[0]} -- kubectl get nodes${NC}"
     fi
+    if [[ "$TDSQL_INIT" == "true" ]]; then
+        echo -e "  验证初始化:   ${CYAN}multipass exec ${node_names[0]} -- cloud-init status${NC}"
+        echo -e "  查看初始化日志: ${CYAN}multipass exec ${node_names[0]} -- cat /var/log/cloud-init-output.log${NC}"
+    fi
     echo ""
 }
 
@@ -555,6 +594,9 @@ main() {
     fi
     log_info "资源: ${CPUS} CPU | ${MEMORY} 内存 | ${disk_summary}"
     [[ "$INSTALL_K3S" == "true" ]] && log_info "将安装 k3s Kubernetes 集群"
+    if [[ "$TDSQL_INIT" == "true" ]]; then
+        log_info "TDSQL 初始化: 已启用（NTP: ${NTP_SERVER}）"
+    fi
 
     # 1. 检查依赖
     check_dependencies
