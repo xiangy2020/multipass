@@ -12,10 +12,11 @@
 #   -c, --cpus       <核数>    每个节点的 CPU 核数（默认: 2）
 #   -m, --memory     <内存>    每个节点的内存大小（默认: 2G）
 #   -d, --disk       <磁盘>    每个节点的系统盘大小（默认: 20G）
-#   -e, --extra-disk [大小]    为每个节点创建独立数据盘（虚拟机内 loop 设备）
+#   -e, --extra-disk [大小]    为每个节点添加独立数据分区（真实磁盘分区，非 loop 设备）
 #                              可选指定大小（如: 50G），默认 20G
-#                              在虚拟机内创建 img 文件 → loop 设备 → 格式化 → 挂载
-#                              与系统盘完全独立，重启后自动挂载（写入 /etc/fstab）
+#                              系统盘大小 = -d 参数值，总磁盘 = 系统盘 + 数据盘
+#                              在虚拟机内用 parted 划分新分区，格式化为 xfs 后挂载
+#                              与系统分区物理隔离，根分区不会被数据占满
 #   -t, --mount-path <路径>    数据盘在虚拟机内的挂载目录（默认: /data），需以 / 开头
 #   -k, --k8s                 安装 k3s 轻量级 Kubernetes 集群
 #   -h, --help                显示帮助信息
@@ -25,8 +26,8 @@
 #   ./create-cluster.sh -n 5 -i ubuntu:22.04              # 创建 5 节点 Ubuntu 集群
 #   ./create-cluster.sh -n 3 -i centos:8 -k               # 创建 3 节点 CentOS 8 k3s 集群
 #   ./create-cluster.sh -p master -n 1 -c 4 -m 4G        # 创建单个 master 节点
-#   ./create-cluster.sh -n 3 -e                           # 创建 3 节点集群，每节点创建 20G 数据盘挂载到 /data
-#   ./create-cluster.sh -n 3 -e 50G -t /data1            # 创建 50G 数据盘挂载到 /data1
+#   ./create-cluster.sh -n 3 -e                           # 创建 3 节点集群，每节点系统盘 20G + 数据盘 20G，挂载到 /data
+#   ./create-cluster.sh -n 3 -e 50G -t /data1            # 系统盘 20G + 数据盘 50G，挂载到 /data1
 # =============================================================================
 
 set -euo pipefail
@@ -47,9 +48,9 @@ NAME_PREFIX="node"
 CPUS=2
 MEMORY="2G"
 DISK="20G"
-EXTRA_DISK=false    # 是否创建额外数据盘（虚拟机内 loop 设备）
-EXTRA_DISK_SIZE="20G"  # 数据盘大小（默认 20G）
-MOUNT_PATH="/data"  # 数据盘在虚拟机内的挂载目录
+EXTRA_DISK=false    # 是否添加独立数据分区（真实磁盘分区）
+EXTRA_DISK_SIZE="20G"  # 数据分区大小（默认 20G）
+MOUNT_PATH="/data"  # 数据分区在虚拟机内的挂载目录
 INSTALL_K3S=false
 
 # ─── 工具函数 ────────────────────────────────────────────────────────────────
@@ -237,25 +238,40 @@ runcmd:
   - systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || true
 YAML
 
-        # 如果需要额外数据盘，追加 loop 设备初始化命令到 cloud-init
+        # 如果需要额外数据分区，追加 parted 分区初始化命令到 cloud-init
         if [[ "$EXTRA_DISK" == "true" ]]; then
             cat >> "$cloud_init_file" <<YAML
-  # 创建数据盘（loop 设备）
+  # 创建数据分区（真实磁盘分区，与系统分区物理隔离）
   - |
     set -e
-    IMG_FILE="/var/lib/data-disk.img"
     MOUNT_POINT="${MOUNT_PATH}"
-    DISK_SIZE="${EXTRA_DISK_SIZE}"
-    # 创建 img 文件
-    fallocate -l "\${DISK_SIZE}" "\${IMG_FILE}" 2>/dev/null || dd if=/dev/zero of="\${IMG_FILE}" bs=1M count=\$(echo "\${DISK_SIZE}" | sed 's/[Gg]//' | awk '{print \$1*1024}') status=none
+    # 找到系统盘设备（通常是 sda 或 vda）
+    DISK_DEV=\$(lsblk -dpno NAME,TYPE | awk '\$2=="disk"{print \$1}' | grep -v loop | head -1)
+    # 获取磁盘总大小（扇区数）
+    TOTAL_SECTORS=\$(cat /sys/block/\$(basename \${DISK_DEV})/size)
+    # 获取最后一个分区的结束位置
+    LAST_END=\$(parted -s \${DISK_DEV} unit s print 2>/dev/null | awk '/^ [0-9]/{last=\$3} END{print last}' | tr -d 's')
+    # 新分区从最后分区结束后 1 扇区开始，到磁盘末尾
+    NEW_START=\$((LAST_END + 1))
+    NEW_END=\$((TOTAL_SECTORS - 1))
+    # 用 parted 创建新分区
+    parted -s \${DISK_DEV} mkpart primary xfs \${NEW_START}s \${NEW_END}s
+    # 等待内核识别新分区
+    partprobe \${DISK_DEV} 2>/dev/null || true
+    sleep 2
+    udevadm settle 2>/dev/null || true
+    # 找到新分区设备名
+    NEW_PART=\$(lsblk -lpno NAME \${DISK_DEV} | tail -1)
     # 格式化为 xfs
-    mkfs.xfs -f "\${IMG_FILE}" >/dev/null 2>&1
+    mkfs.xfs -f \${NEW_PART}
     # 创建挂载点
-    mkdir -p "\${MOUNT_POINT}"
-    # 挂载
-    mount -o loop "\${IMG_FILE}" "\${MOUNT_POINT}"
+    mkdir -p \${MOUNT_POINT}
+    # 获取分区 UUID
+    PART_UUID=\$(blkid -s UUID -o value \${NEW_PART})
     # 写入 fstab 实现开机自动挂载
-    echo "\${IMG_FILE} \${MOUNT_POINT} xfs loop,defaults 0 0" >> /etc/fstab
+    echo "UUID=\${PART_UUID} \${MOUNT_POINT} xfs defaults 0 0" >> /etc/fstab
+    # 挂载
+    mount \${MOUNT_POINT}
 YAML
         fi
     done
@@ -271,9 +287,20 @@ launch_nodes() {
     local node_names=("$@")
 
     log_step "启动 ${#node_names[@]} 个节点（并行创建）"
+    # 计算实际传给 multipass 的总磁盘大小（系统盘 + 数据盘）
+    local total_disk="$DISK"
+    if [[ "$EXTRA_DISK" == "true" ]]; then
+        # 将两个大小相加（单位统一为 G）
+        local sys_gb extra_gb total_gb
+        sys_gb=$(echo "$DISK" | sed 's/[Gg]//i')
+        extra_gb=$(echo "$EXTRA_DISK_SIZE" | sed 's/[Gg]//i')
+        total_gb=$((sys_gb + extra_gb))
+        total_disk="${total_gb}G"
+    fi
+
     local disk_info="系统盘: ${DISK}"
     if [[ "$EXTRA_DISK" == "true" ]]; then
-        disk_info+=" | 数据盘: ${EXTRA_DISK_SIZE} loop设备 → ${MOUNT_PATH}"
+        disk_info+=" | 数据盘: ${EXTRA_DISK_SIZE} 独立分区 → ${MOUNT_PATH}（总磁盘: ${total_disk}）"
     fi
     log_info "镜像: ${IMAGE} | CPU: ${CPUS} 核 | 内存: ${MEMORY} | ${disk_info}"
 
@@ -290,7 +317,7 @@ launch_nodes() {
             --name "$name" \
             --cpus "$CPUS" \
             --memory "$MEMORY" \
-            --disk "$DISK" \
+            --disk "$total_disk" \
             --cloud-init "$cloud_init_file" \
             > "$log_file" 2>&1 &
         pids+=($!)
@@ -467,7 +494,7 @@ print_summary() {
     echo -e "  删除集群:    ${CYAN}multipass delete ${node_names[*]} --purge${NC}"
     if [[ "$EXTRA_DISK" == "true" ]]; then
         echo -e "  查看数据盘:   ${CYAN}multipass exec ${node_names[0]} -- df -Th ${MOUNT_PATH}${NC}"
-        echo -e "  数据盘位置:   虚拟机内 /var/lib/data-disk.img（${EXTRA_DISK_SIZE}）"
+        echo -e "  查看分区:     ${CYAN}multipass exec ${node_names[0]} -- lsblk${NC}"
     fi
     if [[ "$INSTALL_K3S" == "true" ]]; then
         echo -e "  查看 k8s 节点: ${CYAN}multipass exec ${node_names[0]} -- kubectl get nodes${NC}"
@@ -488,7 +515,11 @@ main() {
     log_info "配置: ${NODE_COUNT} 个节点 | 镜像: ${IMAGE} | 前缀: ${NAME_PREFIX}"
     local disk_summary="系统盘: ${DISK}"
     if [[ "$EXTRA_DISK" == "true" ]]; then
-        disk_summary+=" | 数据盘: ${EXTRA_DISK_SIZE} loop设备 → ${MOUNT_PATH}"
+        local sys_gb_s extra_gb_s total_gb_s
+        sys_gb_s=$(echo "$DISK" | sed 's/[Gg]//i')
+        extra_gb_s=$(echo "$EXTRA_DISK_SIZE" | sed 's/[Gg]//i')
+        total_gb_s=$((sys_gb_s + extra_gb_s))
+        disk_summary+=" | 数据盘: ${EXTRA_DISK_SIZE} 独立分区 → ${MOUNT_PATH}（总磁盘: ${total_gb_s}G）"
     fi
     log_info "资源: ${CPUS} CPU | ${MEMORY} 内存 | ${disk_summary}"
     [[ "$INSTALL_K3S" == "true" ]] && log_info "将安装 k3s Kubernetes 集群"
