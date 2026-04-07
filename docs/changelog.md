@@ -1,5 +1,33 @@
 # Changelog
 
+## [Unreleased] - 2026-04-07（修复 CentOS 8 启动慢问题）
+
+### 修复
+
+#### CentOS 8 镜像启动非常慢的 Bug
+
+在 `cloud-init-centos.yaml` 的 `runcmd` 中新增禁用 `NetworkManager-wait-online.service` 的命令，解决 CentOS Stream 8 在 QEMU 虚拟化环境下启动极慢的问题。
+
+**问题根因：**
+
+CentOS Stream 8 的 `NetworkManager-wait-online.service` 会阻塞系统启动，等待网络完全就绪。在 QEMU/HVF 虚拟化环境下，该服务可能触发长达 **90 秒**的超时等待，导致实例启动非常慢。
+
+**修复方式：**
+
+```yaml
+runcmd:
+    - systemctl disable NetworkManager-wait-online.service || true
+    - systemctl restart sshd || systemctl restart ssh
+```
+
+**使用方式：**
+
+```bash
+multipass launch centos:8 --cloud-init data/cloud-init-yaml/cloud-init-centos.yaml
+```
+
+---
+
 ## [Unreleased] - 2026-04-06（多磁盘挂载支持）
 
 ### 新增

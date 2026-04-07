@@ -51,8 +51,13 @@ write_files:
         PasswordAuthentication yes
       permissions: '0600'
 
-# 重启 sshd 使配置生效
+# 重启 sshd 使配置生效，并禁用导致 CentOS 8 启动慢的服务
 runcmd:
+    # 禁用 NetworkManager 网络等待服务（解决 CentOS 8 启动非常慢的 bug）
+    # NetworkManager-wait-online.service 在 CentOS 8 中会等待网络完全就绪，
+    # 在 QEMU 虚拟化环境下可能导致 90 秒超时，严重拖慢启动速度
+    - systemctl disable NetworkManager-wait-online.service || true
+    # 重启 sshd 使 SSH 配置生效
     - systemctl restart sshd || systemctl restart ssh
 
 # 配置腾讯软件源（国内用户可取消注释以加速软件安装）
