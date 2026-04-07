@@ -20,6 +20,7 @@
 #include <multipass/constants.h>
 #include <multipass/format.h>
 #include <multipass/json_utils.h>
+#include <multipass/logging/log.h>
 #include <multipass/memory_size.h>
 #include <multipass/platform.h>
 #include <multipass/process/qemuimg_process_spec.h>
@@ -161,7 +162,19 @@ bool mp::backend::instance_image_has_snapshot(const std::filesystem::path& image
                                               QString snapshot_tag)
 {
     QRegularExpression regex{snapshot_tag.append(R"(\s)")};
-    return QString{snapshot_list_output(image_path)}.contains(regex);
+    try
+    {
+        return QString{snapshot_list_output(image_path)}.contains(regex);
+    }
+    catch (const QemuImgException& e)
+    {
+        mpl::warn("qemu-img",
+                  "Failed to list snapshots for image '{}', assuming no snapshot exists. "
+                  "Error: {}",
+                  image_path.string(),
+                  e.what());
+        return false;
+    }
 }
 
 QByteArray mp::backend::snapshot_list_output(const std::filesystem::path& image_path)
