@@ -28,8 +28,8 @@ variable "iso_checksum" {
 
 variable "accelerator" {
   type        = string
-  default     = "hvf"
-  description = "QEMU 加速器：hvf（macOS）| kvm（Linux）| none（软件模拟）"
+  default     = "tcg"
+  description = "QEMU 加速器：tcg（macOS aarch64）| hvf（macOS x86_64）| kvm（Linux）| none（软件模拟）"
 }
 
 variable "arch" {
@@ -101,8 +101,10 @@ source "qemu" "tlinux" {
   cpus         = var.cpus
   accelerator  = var.accelerator
 
-  # QEMU 二进制（根据架构自动选择）
-  qemu_binary = local.qemu_binary
+  # QEMU 二进制：
+  # - aarch64：使用 wrapper 脚本，过滤掉 -boot once=d（aarch64 UEFI 不支持），并自动注入 -bios 和 -cpu
+  # - x86_64：直接使用 qemu-system-x86_64
+  qemu_binary = var.arch == "aarch64" ? "${path.root}/../scripts/qemu-aarch64-wrapper.sh" : "qemu-system-x86_64"
 
   # Machine type（aarch64 必须用 virt）
   machine_type = local.machine_type
@@ -110,14 +112,6 @@ source "qemu" "tlinux" {
   # 磁盘接口：virtio（两种架构均支持）
   disk_interface = "virtio"
   net_device     = "virtio-net"
-
-  # aarch64 需要 UEFI firmware，通过 qemu_args 传入 -bios 参数
-  # x86_64 不传入，使用默认 BIOS
-  # 注意：Packer 的 firmware 字段不支持条件赋 null，所以改用 qemu_args 传入
-  qemu_args = var.arch == "aarch64" ? [
-    ["-bios", local.firmware],
-    ["-cpu", "cortex-a57"]
-  ] : []
 
   # 显示配置（无头模式）
   headless = true

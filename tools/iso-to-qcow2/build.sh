@@ -13,8 +13,8 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
-warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
+info()  { echo -e "${GREEN}[INFO]${NC}  $*" >&2; }
+warn()  { echo -e "${YELLOW}[WARN]${NC}  $*" >&2; }
 error() { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 
 # ---------- 默认值 ----------
@@ -79,8 +79,8 @@ else
 fi
 
 # ---------- 自动检测平台，选择 QEMU 加速器 ----------
-# 规则：HVF/KVM 只能加速与宿主机相同架构的虚拟机
-#   - macOS Apple Silicon (arm64) + aarch64 ISO → hvf ✅
+# 规则：
+#   - macOS Apple Silicon (arm64) + aarch64 ISO → tcg（Packer QEMU 插件对 aarch64 不支持 hvf）
 #   - macOS Apple Silicon (arm64) + x86_64 ISO  → none（跨架构，软件模拟）
 #   - macOS Intel (x86_64)        + x86_64 ISO  → hvf ✅
 #   - macOS Intel (x86_64)        + aarch64 ISO → none（跨架构，软件模拟）
@@ -94,9 +94,13 @@ detect_accelerator() {
   [[ "$host_arch" == "arm64" ]] && host_arch="aarch64"
 
   if [[ "$os" == "Darwin" ]]; then
-    if [[ "$host_arch" == "$ARCH" ]]; then
-      info "检测到 macOS ${host_arch}，构建 ${ARCH} 镜像，使用 HVF 加速器"
+    if [[ "$host_arch" == "$ARCH" && "$ARCH" == "x86_64" ]]; then
+      info "检测到 macOS x86_64，构建 x86_64 镜像，使用 HVF 加速器"
       echo "hvf"
+    elif [[ "$ARCH" == "aarch64" ]]; then
+      # Packer QEMU 插件对 aarch64 不支持 hvf，使用 tcg（软件模拟）
+      warn "构建 aarch64 镜像，使用 tcg 软件模拟（Packer QEMU 插件对 aarch64 不支持 hvf）"
+      echo "tcg"
     else
       warn "跨架构构建（宿主机 ${host_arch} → 目标 ${ARCH}），使用软件模拟（预计 60~120 分钟）"
       echo "none"
@@ -117,13 +121,21 @@ detect_accelerator() {
 
 ACCELERATOR="$(detect_accelerator)"
 
+# ---------- 设置 Packer 插件路径 ----------
+# Packer 1.9.x 在某些环境下不会自动搜索 ~/.config/packer/plugins，显式指定
+export PACKER_PLUGIN_PATH="${HOME}/.config/packer/plugins"
+
 # ---------- 安装 Packer QEMU 插件（首次运行） ----------
 info "初始化 Packer 插件..."
 packer plugins install github.com/hashicorp/qemu >/dev/null 2>&1 || true
 
 # ---------- 执行 Packer 构建 ----------
 OUTPUT_DIR="${SCRIPT_DIR}/output/${DISTRO}"
-mkdir -p "$OUTPUT_DIR"
+# 注意：Packer 要求输出目录不存在，如果存在则删除重建
+if [[ -d "$OUTPUT_DIR" ]]; then
+  warn "输出目录已存在，删除重建：${OUTPUT_DIR}"
+  rm -rf "$OUTPUT_DIR"
+fi
 
 info "开始构建 ${DISTRO} 镜像..."
 info "  ISO      : ${ISO_PATH}"
