@@ -1,15 +1,15 @@
 # 实施计划：国内主流 Linux 发行版镜像支持
 
-- [ ] 1. 调研并收集各发行版镜像元数据
+- [x] 1. 调研并收集各发行版镜像元数据
    - 访问 `https://cloud.centos.org/` 确认 CentOS Stream 9/10 的 qcow2 镜像 URL、SHA256 及文件大小（x86_64 / aarch64）
-   - 访问腾讯软件源确认 TencentOS 2.x / 3.x 的 Cloud 镜像 URL 及校验信息
+   - 访问腾讯软件源确认 TencentOS 2.4 / 3.3 / 4.4 的 Cloud 镜像 URL 及校验信息（mirrors.tencent.com）
    - 访问麒麟官方镜像站确认 Kylin V10 的 Cloud 镜像 URL 及校验信息（x86_64 / aarch64）
    - _需求：1.1、1.2、2.1、3.1_
 
-- [ ] 2. 更新 `distribution-info.json`，添加三个发行版的镜像条目
-   - 在 `data/distributions/distribution-info.json` 中新增 CentOS Stream、TencentOS、Kylin 三个条目
-   - 每个条目包含 `os`、`release`、`release_codename`、`release_title`、`aliases`、`items`（含各架构的 `image_location`、`id`、`version`、`size`）字段
-   - CentOS 别名设置为 `centos`、`centos-stream`；TencentOS 别名设置为 `tencentos`、`tlinux`；Kylin 别名设置为 `kylin`、`kylinv10`
+- [x] 2. 更新 `distribution-info.json`，添加三个发行版的镜像条目
+   - 在 `data/distributions/distribution-info.json` 中新增 CentOS Stream、TencentOS（2.4/3.3/4.4）、Kylin 三个条目
+   - TencentOS 支持多版本：TencentOS24（别名 tlinux2/tencentos2）、TencentOS33（别名 tencentos/tlinux，默认版本）、TencentOS44（别名 tlinux4/tencentos4）
+   - 3.3 和 4.4 版本已填入真实 SHA256 和文件大小；2.4 版本为 .bz2 压缩格式，size 标记为 -1
    - _需求：1.1、1.2、1.3、2.1、2.2、3.1、3.2_
 
 - [ ] 3. 实现 CentOS Stream 镜像抓取器插件

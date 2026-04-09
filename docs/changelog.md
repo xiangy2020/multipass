@@ -1,5 +1,40 @@
 # Changelog
 
+## [Unreleased] - 2026-04-09（TencentOS 多版本镜像支持）
+
+### 变更
+
+#### TencentOS 镜像支持升级：从占位数据到真实多版本镜像
+
+将 `distribution-info.json` 中原有的 TencentOS 3.2 占位条目（URL 404）替换为三个真实可用的版本，支持 2.x / 3.x / 4.x 系列：
+
+| 版本 | JSON Key | 别名 | 架构 | 镜像来源 | 说明 |
+|------|----------|------|------|----------|------|
+| **2.4** | `TencentOS24` | `tlinux2`, `tencentos2`, `tlinux2.4`, `tencentos2.4` | x86_64, arm64 | `mirrors.tencent.com/tlinux/2.4/` | 压缩格式 `.qcow2.bz2` |
+| **3.3** | `TencentOS33` | `tencentos`, `tlinux`（默认）, `tlinux3`, `tencentos3`, `tlinux3.3`, `tencentos3.3` | x86_64, arm64 | `mirrors.tencent.com/tlinux/3.3/` | GenericCloud，含 SHA256 |
+| **4.4** | `TencentOS44` | `tlinux4`, `tencentos4`, `tlinux4.4`, `tencentos4.4` | x86_64, arm64 | `mirrors.tencent.com/tlinux/4.4/` | GenericCloud，含 SHA256 |
+
+**使用示例：**
+
+```bash
+# 启动默认版本（3.3）
+multipass launch tlinux
+multipass launch tencentos
+
+# 启动指定版本
+multipass launch tlinux2       # TencentOS 2.4
+multipass launch tlinux3.3     # TencentOS 3.3
+multipass launch tlinux4       # TencentOS 4.4
+multipass launch tlinux4.4     # TencentOS 4.4（明确版本）
+```
+
+**镜像说明：**
+- TencentOS 3.3 / 4.4 为 `GenericCloud` 格式，内置 cloud-init，可直接被 Multipass 使用
+- TencentOS 2.4 为 `.qcow2.bz2` 压缩格式，Multipass 是否支持自动解压取决于版本
+- 3.3 和 4.4 版本均已填入真实 SHA256 校验值和文件大小
+
+---
+
 ## [Unreleased] - 2026-04-09（新增 iso-to-qcow2 工具）
 
 ### 新增
