@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
 # build.sh — ISO → qcow2 Cloud Image 构建入口脚本
-# 用法：./build.sh --distro <发行版> --iso <ISO路径> [--checksum <sha256:xxx>]
+# 用法：./build.sh --distro <发行版> --iso <ISO路径> [--arch <架构>] [--checksum <sha256:xxx>]
 # 支持发行版：centos7 | tlinux
+# 支持架构：x86_64（默认）| aarch64
 # =============================================================================
 set -euo pipefail
 
@@ -20,23 +21,25 @@ error() { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 DISTRO=""
 ISO_PATH=""
 CHECKSUM="none"
+ARCH="x86_64"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ---------- 解析参数 ----------
 usage() {
   cat <<EOF
 用法：
-  $0 --distro <发行版> --iso <ISO路径> [--checksum <sha256:xxx>]
+  $0 --distro <发行版> --iso <ISO路径> [--arch <架构>] [--checksum <sha256:xxx>]
 
 参数：
   --distro    目标发行版，支持：centos7 | tlinux
   --iso       ISO 文件的绝对路径或 URL
+  --arch      目标架构，支持：x86_64（默认）| aarch64
   --checksum  ISO 文件的 SHA256 校验值，格式：sha256:xxxx（可选，默认 none 跳过校验）
 
 示例：
   $0 --distro centos7 --iso /tmp/CentOS-7-x86_64-Minimal-2009.iso
-  $0 --distro centos7 --iso /tmp/CentOS-7-x86_64-Minimal-2009.iso --checksum sha256:abc123...
-  $0 --distro tlinux  --iso /tmp/TencentOS-Server-3.1-x86_64.iso
+  $0 --distro tlinux  --iso /tmp/TencentOS-Server-2.4-aarch64.iso --arch aarch64
+  $0 --distro tlinux  --iso /tmp/TencentOS-Server-3.1-x86_64.iso --checksum sha256:abc123...
 EOF
   exit 1
 }
@@ -45,6 +48,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --distro)    DISTRO="$2";    shift 2 ;;
     --iso)       ISO_PATH="$2";  shift 2 ;;
+    --arch)      ARCH="$2";      shift 2 ;;
     --checksum)  CHECKSUM="$2";  shift 2 ;;
     -h|--help)   usage ;;
     *) error "未知参数：$1" ;;
@@ -54,6 +58,7 @@ done
 # ---------- 参数校验 ----------
 [[ -z "$DISTRO" ]]   && error "缺少 --distro 参数，请指定目标发行版（centos7 | tlinux）"
 [[ -z "$ISO_PATH" ]] && error "缺少 --iso 参数，请指定 ISO 文件路径"
+[[ "$ARCH" != "x86_64" && "$ARCH" != "aarch64" ]] && error "不支持的架构：${ARCH}，请使用 x86_64 或 aarch64"
 
 TEMPLATE="${SCRIPT_DIR}/templates/${DISTRO}.pkr.hcl"
 [[ -f "$TEMPLATE" ]] || error "找不到 Packer 模板：${TEMPLATE}"
@@ -67,21 +72,41 @@ fi
 # ---------- 检测依赖 ----------
 info "检测依赖工具..."
 command -v packer &>/dev/null || error "未找到 packer，请先安装：brew install packer（macOS）或参考 https://developer.hashicorp.com/packer/install"
-command -v qemu-system-x86_64 &>/dev/null || error "未找到 qemu-system-x86_64，请先安装：brew install qemu（macOS）或 apt install qemu-system-x86（Linux）"
+if [[ "$ARCH" == "aarch64" ]]; then
+  command -v qemu-system-aarch64 &>/dev/null || error "未找到 qemu-system-aarch64，请先安装：brew install qemu（macOS）或 apt install qemu-system-arm（Linux）"
+else
+  command -v qemu-system-x86_64 &>/dev/null || error "未找到 qemu-system-x86_64，请先安装：brew install qemu（macOS）或 apt install qemu-system-x86（Linux）"
+fi
 
 # ---------- 自动检测平台，选择 QEMU 加速器 ----------
+# 规则：HVF/KVM 只能加速与宿主机相同架构的虚拟机
+#   - macOS Apple Silicon (arm64) + aarch64 ISO → hvf ✅
+#   - macOS Apple Silicon (arm64) + x86_64 ISO  → none（跨架构，软件模拟）
+#   - macOS Intel (x86_64)        + x86_64 ISO  → hvf ✅
+#   - macOS Intel (x86_64)        + aarch64 ISO → none（跨架构，软件模拟）
+#   - Linux + KVM                 + 同架构 ISO  → kvm ✅
 detect_accelerator() {
-  local os
+  local os host_arch
   os="$(uname -s)"
+  host_arch="$(uname -m)"  # arm64 或 x86_64
+
+  # 统一 arm64 → aarch64 便于比较
+  [[ "$host_arch" == "arm64" ]] && host_arch="aarch64"
+
   if [[ "$os" == "Darwin" ]]; then
-    info "检测到 macOS，使用 HVF 加速器"
-    echo "hvf"
+    if [[ "$host_arch" == "$ARCH" ]]; then
+      info "检测到 macOS ${host_arch}，构建 ${ARCH} 镜像，使用 HVF 加速器"
+      echo "hvf"
+    else
+      warn "跨架构构建（宿主机 ${host_arch} → 目标 ${ARCH}），使用软件模拟（预计 60~120 分钟）"
+      echo "none"
+    fi
   elif [[ "$os" == "Linux" ]]; then
-    if [[ -e /dev/kvm ]]; then
-      info "检测到 Linux + KVM，使用 KVM 加速器"
+    if [[ -e /dev/kvm && "$host_arch" == "$ARCH" ]]; then
+      info "检测到 Linux + KVM，构建 ${ARCH} 镜像，使用 KVM 加速器"
       echo "kvm"
     else
-      warn "未检测到 /dev/kvm，将使用软件模拟（构建速度较慢）"
+      warn "未使用硬件加速（/dev/kvm 不存在或跨架构），将使用软件模拟"
       echo "none"
     fi
   else
@@ -110,6 +135,7 @@ packer build \
   -var "iso_url=${ISO_PATH}" \
   -var "iso_checksum=${CHECKSUM}" \
   -var "accelerator=${ACCELERATOR}" \
+  -var "arch=${ARCH}" \
   -var "output_dir=${OUTPUT_DIR}" \
   "${TEMPLATE}"
 
@@ -125,4 +151,4 @@ else
 fi
 
 info "✅ 构建完成！镜像位于：${OUTPUT_DIR}"
-info "使用方式：multipass launch file://${OUTPUT_DIR}/*.qcow2 --name my-vm"
+info "使用方式：multipass launch file://$(ls ${OUTPUT_DIR}/*.qcow2 2>/dev/null | head -1) --name my-vm"

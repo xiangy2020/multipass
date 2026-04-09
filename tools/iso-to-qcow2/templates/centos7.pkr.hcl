@@ -27,8 +27,14 @@ variable "iso_checksum" {
 
 variable "accelerator" {
   type        = string
-  default     = "hvf"
-  description = "QEMU 加速器：hvf（macOS）| kvm（Linux）| none（软件模拟）"
+  default     = "none"
+  description = "QEMU 加速器：hvf（macOS x86_64）| kvm（Linux）| none（软件模拟，arm64 宿主机跑 x86_64 ISO 必须用 none）"
+}
+
+variable "qemu_binary" {
+  type        = string
+  default     = "qemu-system-x86_64"
+  description = "QEMU 可执行文件名，x86_64 ISO 固定使用 qemu-system-x86_64"
 }
 
 variable "output_dir" {
@@ -72,13 +78,16 @@ source "qemu" "centos7" {
   cpus         = var.cpus
   accelerator  = var.accelerator
 
+  # 指定 QEMU 二进制（arm64 宿主机上需要明确指定 x86_64 模拟器）
+  qemu_binary = var.qemu_binary
+
   # QEMU 参数：使用 virtio 磁盘（性能更好，Kickstart 中对应 /dev/vda）
   disk_interface = "virtio"
   net_device     = "virtio-net"
 
   # 显示配置（无头模式）
-  headless         = true
-  display          = "none"
+  headless = true
+  display  = "none"
 
   # HTTP server（用于提供 Kickstart 文件）
   http_directory = "${path.root}/../http"

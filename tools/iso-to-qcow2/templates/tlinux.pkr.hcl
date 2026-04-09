@@ -1,11 +1,7 @@
 # =============================================================================
 # TencentOS Server（TLinux）→ qcow2 Cloud Image Packer 构建模板
-# 支持：TencentOS Server 2.x 和 3.x
+# 支持：TencentOS Server 2.x 和 3.x，x86_64 和 aarch64 架构
 # 用法：由 build.sh 调用，不建议直接执行
-# 与 centos7.pkr.hcl 的主要差异：
-#   1. Kickstart 文件指向 tlinux-ks.cfg
-#   2. 输出目录为 output/tlinux
-#   3. vm_name 为 tlinux-cloud.qcow2
 # =============================================================================
 
 packer {
@@ -36,6 +32,12 @@ variable "accelerator" {
   description = "QEMU 加速器：hvf（macOS）| kvm（Linux）| none（软件模拟）"
 }
 
+variable "arch" {
+  type        = string
+  default     = "x86_64"
+  description = "目标架构：x86_64 | aarch64"
+}
+
 variable "output_dir" {
   type        = string
   default     = "../output/tlinux"
@@ -60,6 +62,28 @@ variable "cpus" {
   description = "构建虚拟机 CPU 核数"
 }
 
+# ---------- 本地变量：根据 arch 自动选择 QEMU 二进制和 firmware ----------
+locals {
+  # QEMU 可执行文件：aarch64 用 qemu-system-aarch64，x86_64 用 qemu-system-x86_64
+  qemu_binary = var.arch == "aarch64" ? "qemu-system-aarch64" : "qemu-system-x86_64"
+
+  # aarch64 需要 UEFI firmware（edk2-aarch64）
+  # macOS brew 安装路径：/opt/homebrew/share/qemu/edk2-aarch64-code.fd
+  # Linux 路径：/usr/share/qemu/edk2-aarch64-code.fd
+  firmware_macos = "/opt/homebrew/share/qemu/edk2-aarch64-code.fd"
+  firmware_linux = "/usr/share/qemu/edk2-aarch64-code.fd"
+  firmware = var.arch == "aarch64" ? (
+    fileexists("/opt/homebrew/share/qemu/edk2-aarch64-code.fd") ?
+      local.firmware_macos : local.firmware_linux
+  ) : ""
+
+  # aarch64 需要指定 machine type
+  machine_type = var.arch == "aarch64" ? "virt" : "pc"
+
+  # aarch64 输出文件名加 arch 后缀，便于区分
+  vm_name = var.arch == "aarch64" ? "tlinux-aarch64-cloud.qcow2" : "tlinux-cloud.qcow2"
+}
+
 # ---------- QEMU Builder ----------
 source "qemu" "tlinux" {
   # ISO 来源
@@ -68,7 +92,7 @@ source "qemu" "tlinux" {
 
   # 输出配置
   output_directory = var.output_dir
-  vm_name          = "tlinux-cloud.qcow2"
+  vm_name          = local.vm_name
   format           = "qcow2"
 
   # 硬件配置
@@ -77,9 +101,23 @@ source "qemu" "tlinux" {
   cpus         = var.cpus
   accelerator  = var.accelerator
 
-  # QEMU 参数
+  # QEMU 二进制（根据架构自动选择）
+  qemu_binary = local.qemu_binary
+
+  # Machine type（aarch64 必须用 virt）
+  machine_type = local.machine_type
+
+  # 磁盘接口：virtio（两种架构均支持）
   disk_interface = "virtio"
   net_device     = "virtio-net"
+
+  # aarch64 需要 UEFI firmware，通过 qemu_args 传入 -bios 参数
+  # x86_64 不传入，使用默认 BIOS
+  # 注意：Packer 的 firmware 字段不支持条件赋 null，所以改用 qemu_args 传入
+  qemu_args = var.arch == "aarch64" ? [
+    ["-bios", local.firmware],
+    ["-cpu", "cortex-a57"]
+  ] : []
 
   # 显示配置（无头模式）
   headless = true
@@ -94,17 +132,32 @@ source "qemu" "tlinux" {
   communicator = "ssh"
   ssh_username = "root"
   ssh_password = "packer-build-only"
-  ssh_timeout  = "30m"
+  ssh_timeout  = "60m"
   ssh_port     = 22
 
   # 关机命令
   shutdown_command = "shutdown -h now"
 
-  # 启动等待时间
-  boot_wait = "10s"
+  # 启动等待时间（aarch64 UEFI 启动较慢，给更多时间）
+  boot_wait = var.arch == "aarch64" ? "30s" : "10s"
 
-  # 启动命令：注入 TencentOS Kickstart 文件地址
-  boot_command = [
+  # ---------- 启动命令 ----------
+  # x86_64（BIOS/ISOLINUX）：按 Tab 键进入命令行，追加 ks= 参数
+  # aarch64（UEFI/GRUB）：等待 GRUB 菜单出现，按 e 编辑，追加 ks= 参数后 Ctrl+X 启动
+  boot_command = var.arch == "aarch64" ? [
+    # aarch64 GRUB 启动流程：
+    # 1. 等待 GRUB 菜单出现（boot_wait 已等待 30s）
+    # 2. 按 e 进入编辑模式
+    # 3. 找到 linux/linuxefi 行，移到行尾追加 ks= 参数
+    # 4. Ctrl+X 启动
+    "<wait5>",
+    "e<wait3>",
+    "<down><down><down><end>",
+    " inst.ks=http://{{ .HTTPIP }}:{{ .HTTPPort }}/tlinux-ks.cfg",
+    " console=ttyAMA0,115200n8",
+    "<wait2><leftCtrlOn>x<leftCtrlOff>"
+  ] : [
+    # x86_64 ISOLINUX/SYSLINUX 启动流程
     "<tab>",
     " text",
     " ks=http://{{ .HTTPIP }}:{{ .HTTPPort }}/tlinux-ks.cfg",
@@ -121,7 +174,8 @@ build {
   # Step 1：安装 cloud-init，并强制启用腾讯软件源
   provisioner "shell" {
     environment_vars = [
-      "USE_TENCENT_MIRROR=true"
+      "USE_TENCENT_MIRROR=true",
+      "TARGET_ARCH=${var.arch}"
     ]
     script          = "${path.root}/../scripts/install-cloud-init.sh"
     execute_command = "chmod +x {{ .Path }}; sudo {{ .Path }}"
