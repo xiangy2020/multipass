@@ -201,8 +201,46 @@ YAML::Node mp::utils::make_cloud_init_meta_config_with_id_tweak(const std::strin
 YAML::Node mp::utils::make_cloud_init_network_config(
     const std::string& default_mac_addr,
     const std::vector<mp::NetworkInterface>& extra_interfaces,
-    const std::string& file_content)
+    const std::string& file_content,
+    bool use_v1)
 {
+    // version: 1 格式：兼容旧版 cloud-init（CentOS Stream 8、tlinux 2.4 等 RHEL 系发行版）
+    // 这些发行版的 cloud-init 不支持 Netplan version: 2 格式
+    if (use_v1)
+    {
+        YAML::Node network_data;
+        network_data["version"] = 1;
+
+        // 默认网卡配置
+        YAML::Node default_iface;
+        default_iface["type"] = "physical";
+        default_iface["name"] = fmt::format(interface_name_pattern, default_interface_index);
+        default_iface["mac_address"] = default_mac_addr;
+        YAML::Node default_subnet;
+        default_subnet["type"] = "dhcp4";
+        default_iface["subnets"].push_back(default_subnet);
+        network_data["config"].push_back(default_iface);
+
+        // 额外网卡配置
+        for (auto extra_idx = extra_interface_index_start; const auto& extra : extra_interfaces)
+        {
+            if (!extra.auto_mode)
+                continue;
+            YAML::Node extra_iface;
+            extra_iface["type"] = "physical";
+            extra_iface["name"] = fmt::format(interface_name_pattern, extra_idx);
+            extra_iface["mac_address"] = extra.mac_address;
+            YAML::Node extra_subnet;
+            extra_subnet["type"] = "dhcp4";
+            extra_iface["subnets"].push_back(extra_subnet);
+            network_data["config"].push_back(extra_iface);
+            ++extra_idx;
+        }
+
+        return network_data;
+    }
+
+    // version: 2 格式（Netplan）：适用于 Ubuntu 及支持 Netplan 的发行版
     YAML::Node network_data = file_content.empty() ? YAML::Node{} : YAML::Load(file_content);
     network_data["version"] = "2";
 

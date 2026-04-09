@@ -162,14 +162,20 @@ auto make_cloud_init_vendor_config(const mp::SSHKeyProvider& key_provider,
     // Pollinate is not available as a RPM package and also dependencies that are inherent to
     // Ubuntu/Debian systems
     const auto& image_name = request->image();
-    // centos 系列（centos、centos-stream、centos8、centos9 等）均不支持 pollinate
+    // 判断是否为 RHEL 系发行版（CentOS、tlinux/TencentOS 等）
+    // 这些发行版：1) 不支持 pollinate；2) 使用旧版 cloud-init，需要 network-config version: 1 格式
     // 注意：multipass 将 "centos:8" 解析为 remote=centos, image=8，因此版本化别名使用不含冒号的形式
-    const bool is_centos = image_name == "centos" || image_name == "centos-stream" ||
-                           (image_name.starts_with("centos") &&
-                            !image_name.empty() && std::isdigit(image_name.back())) ||
-                           (image_name.starts_with("centos-stream") &&
-                            !image_name.empty() && std::isdigit(image_name.back()));
-    if (image_name != "fedora" && !is_centos)
+    const bool is_rhel_based =
+        // CentOS 系列
+        image_name == "centos" || image_name == "centos-stream" ||
+        (image_name.starts_with("centos") &&
+         !image_name.empty() && std::isdigit(image_name.back())) ||
+        (image_name.starts_with("centos-stream") &&
+         !image_name.empty() && std::isdigit(image_name.back())) ||
+        // tlinux / TencentOS 系列（2.4 使用旧版 cloud-init）
+        image_name.starts_with("tlinux") ||
+        image_name.starts_with("tencentos");
+    if (image_name != "fedora" && !is_rhel_based)
     {
         config["packages"].push_back("pollinate");
 
@@ -190,9 +196,9 @@ auto make_cloud_init_vendor_config(const mp::SSHKeyProvider& key_provider,
         config["write_files"].push_back(pollinate_user_agent_node);
     }
 
-    // CentOS 系列镜像（含所有版本化别名）默认禁用密码登录，通过 vendor config 注入密码认证配置
-    // 允许 root 和默认用户（centos）通过密码登录，方便开发调试
-    if (is_centos)
+    // CentOS/tlinux 等 RHEL 系镜像默认禁用密码登录，通过 vendor config 注入密码认证配置
+    // 允许 root 和默认用户通过密码登录，方便开发调试
+    if (is_rhel_based)
     {
         // 启用 SSH 密码认证
         config["ssh_pwauth"] = true;
@@ -3358,9 +3364,23 @@ void mp::Daemon::create_vm(const CreateRequest* request,
             if (vm_desc.num_cores < std::stoi(mp::min_cpu_cores))
                 vm_desc.num_cores = std::stoi(mp::default_cpu_cores);
 
+            // RHEL 系发行版（CentOS、tlinux 等）使用旧版 cloud-init，不支持 Netplan version: 2
+            // 格式，需要生成 version: 1 格式的网络配置
+            const auto& req_image = request->image();
+            const bool rhel_based =
+                req_image == "centos" || req_image == "centos-stream" ||
+                (req_image.starts_with("centos") &&
+                 !req_image.empty() && std::isdigit(req_image.back())) ||
+                (req_image.starts_with("centos-stream") &&
+                 !req_image.empty() && std::isdigit(req_image.back())) ||
+                req_image.starts_with("tlinux") ||
+                req_image.starts_with("tencentos");
+
             vm_desc.network_data_config =
                 mpu::make_cloud_init_network_config(vm_desc.default_mac_address,
-                                                    checked_args.extra_interfaces);
+                                                    checked_args.extra_interfaces,
+                                                    /*file_content=*/{},
+                                                    /*use_v1=*/rhel_based);
 
             vm_desc.image = vm_image;
             config->factory->configure(vm_desc);

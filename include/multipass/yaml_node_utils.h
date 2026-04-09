@@ -41,10 +41,13 @@ YAML::Node make_cloud_init_meta_config_with_id_tweak(
     const std::string& file_content,
     const std::string& new_instance_id = std::string());
 // when file_content is non-empty, make_cloud_init_network_config constructs the node based on the
-// string and replaces the default mac address and extra interfaces
+// string and replaces the default mac address and extra interfaces.
+// when use_v1 is true, generates cloud-init network-config version: 1 format (compatible with
+// older cloud-init versions used by RHEL-based distros like CentOS Stream 8, tlinux 2.4, etc.)
 YAML::Node make_cloud_init_network_config(const std::string& default_mac_addr,
                                           const std::vector<NetworkInterface>& extra_interfaces,
-                                          const std::string& file_content = std::string{});
+                                          const std::string& file_content = std::string{},
+                                          bool use_v1 = false);
 // adds one extra interface to the network_config_file_content baseline, it creates the default
 // address node together with the extra interface node when it is empty,
 YAML::Node add_extra_interface_to_network_config(const std::string& default_mac_addr,
