@@ -72,7 +72,7 @@ inline VMImageInfo tag_invoke(const boost::json::value_to_tag<VMImageInfo>&,
             value_to<QString>(arch_json->at("id")),
             "",
             value_to<QString>(arch_json->at("version")),
-            lookup_or<int>(*arch_json, "size", -1),
+            lookup_or<int64_t>(*arch_json, "size", -1LL),
             true};
 }
 } // namespace multipass
