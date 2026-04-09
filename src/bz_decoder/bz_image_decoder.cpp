@@ -16,6 +16,7 @@
  */
 
 #include <multipass/bz_image_decoder.h>
+#include <multipass/rpc/multipass.grpc.pb.h>
 
 #include <fmt/format.h>
 

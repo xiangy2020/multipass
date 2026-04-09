@@ -114,7 +114,15 @@ async def run_scraper(scraper_instance: BaseScraper) -> tuple[str, dict[str, dic
 
     # Normalize to list for uniform processing
     if isinstance(result, dict):
-        result_list = [(name, result)]
+        # 检查是否是多版本条目字典（值也是 dict，且包含 'os' 或 'items' 键）
+        # 通过检查第一个值是否是包含 'items' 的 dict 来判断
+        first_val = next(iter(result.values()), None) if result else None
+        if isinstance(first_val, dict) and "items" in first_val:
+            # 多版本条目：{key: {os, release, items, ...}, ...}
+            result_list = [(key, data) for key, data in result.items()]
+        else:
+            # 单版本条目
+            result_list = [(name, result)]
     elif isinstance(result, list):
         # Each item in the list should have a 'release_title' to form a unique key
         result_list = []

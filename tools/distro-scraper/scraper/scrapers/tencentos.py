@@ -5,12 +5,10 @@ from ..base import BaseScraper, DEFAULT_TIMEOUT
 from ..models import SUPPORTED_ARCHITECTURES
 
 # 腾讯软件源 TencentOS Cloud 镜像目录
-# 注意：腾讯软件源目前仅提供容器镜像（tar.xz），暂无公开的 qcow2 Cloud 镜像。
-# 本 Scraper 尝试从腾讯软件源获取镜像，若不可用则记录警告并返回占位数据。
 TENCENT_MIRROR_BASE = "https://mirrors.tencent.com/tlinux/"
 
-# 当前支持的 TencentOS 版本（优先使用最新版）
-TENCENTOS_VERSIONS = ["3.2", "3.1"]
+# 当前支持的 TencentOS 版本（按优先级排列）
+TENCENTOS_VERSIONS = ["3.2", "3.1", "2.4"]
 
 # 架构映射：multipass 架构名 -> 腾讯软件源目录架构名
 ARCH_MAP = {
@@ -21,11 +19,8 @@ ARCH_MAP = {
 # 仅支持这两种架构
 TENCENTOS_SUPPORTED_ARCHES = {"x86_64", "arm64"}
 
-# 占位镜像 URL 模板（当官方 Cloud 镜像不可用时使用）
-PLACEHOLDER_URL_TEMPLATE = (
-    "https://mirrors.tencent.com/tlinux/{version}/images/{arch}/"
-    "TencentOS-Server-{version}-GenericCloud-{arch}.qcow2"
-)
+# 2.4 版本的镜像在 images/{arch}/qcow2/ 子目录下
+VERSIONS_WITH_QCOW2_SUBDIR = {"2.4"}
 
 
 class TencentOSScraper(BaseScraper):
@@ -36,14 +31,21 @@ class TencentOSScraper(BaseScraper):
     def name(self) -> str:
         return "TencentOS"
 
-    async def _find_qcow2_in_dir(
+    async def _find_compressed_image_in_dir(
         self, session: aiohttp.ClientSession, url: str
     ) -> list[str]:
         """
-        从目录列表页面中查找 qcow2 文件链接。
+        从目录列表页面中查找 .qcow2.bz2 或 .qcow2.xz 或 .qcow2 文件链接。
+        优先返回 .qcow2.bz2，其次 .qcow2.xz，最后 .qcow2。
         """
         try:
             text = await self._fetch_text(session, url)
+            bz2_files = re.findall(r'href="([^"]*\.qcow2\.bz2)"', text)
+            if bz2_files:
+                return bz2_files
+            xz_files = re.findall(r'href="([^"]*\.qcow2\.xz)"', text)
+            if xz_files:
+                return xz_files
             return re.findall(r'href="([^"]*\.qcow2)"', text)
         except Exception as e:
             self.logger.debug("访问目录 %s 失败: %s", url, e)
@@ -54,16 +56,20 @@ class TencentOSScraper(BaseScraper):
     ) -> tuple[str, dict]:
         """
         尝试获取指定版本和架构的 TencentOS Cloud 镜像元数据。
-        若官方 Cloud 镜像不可用，返回占位数据并记录警告。
         """
         tencent_arch = ARCH_MAP[label]
-        images_url = f"{TENCENT_MIRROR_BASE}{version}/images/{tencent_arch}/"
 
-        qcow2_files = await self._find_qcow2_in_dir(session, images_url)
+        # 2.4 版本有 qcow2 子目录
+        if version in VERSIONS_WITH_QCOW2_SUBDIR:
+            images_url = f"{TENCENT_MIRROR_BASE}{version}/images/{tencent_arch}/qcow2/"
+        else:
+            images_url = f"{TENCENT_MIRROR_BASE}{version}/images/{tencent_arch}/"
 
-        if qcow2_files:
-            # 找到真实的 qcow2 镜像
-            filename = qcow2_files[-1]  # 取最新的
+        image_files = await self._find_compressed_image_in_dir(session, images_url)
+
+        if image_files:
+            # 取最新的（列表最后一个）
+            filename = image_files[-1]
             image_url = images_url + filename
 
             # 尝试获取 md5sum 或 sha256sum
@@ -78,92 +84,104 @@ class TencentOSScraper(BaseScraper):
                 except Exception:
                     continue
 
+            # 尝试从 md5sum.txt 获取校验和
+            if not sha256:
+                try:
+                    md5_url = images_url + "md5sum.txt"
+                    md5_text = await self._fetch_text(session, md5_url)
+                    # 查找对应文件名的 md5
+                    for line in md5_text.splitlines():
+                        if filename in line:
+                            match = re.search(r"([0-9a-f]{32,})", line)
+                            if match:
+                                sha256 = match.group(1)
+                                break
+                except Exception:
+                    pass
+
             size = await self._head_content_length(session, image_url) or -1
 
-            # 从文件名提取版本日期
-            date_match = re.search(r"-(\d{8})", filename)
+            # 从文件名提取版本日期（支持 -20220518- 或 .20220518. 等格式）
+            date_match = re.search(r"[.\-](\d{8})[.\-]", filename)
             version_str = date_match.group(1) if date_match else version
 
             self.logger.info(
-                "TencentOS %s %s: 找到真实镜像 %s", version, label, image_url
+                "TencentOS %s %s: 找到镜像 %s", version, label, image_url
             )
             return label, {
                 "image_location": image_url,
-                "id": sha256 or f"placeholder-tencentos-{version}-{tencent_arch}",
+                "id": sha256 or f"tencentos-{version}-{tencent_arch}-{version_str}",
                 "version": version_str,
                 "size": size,
             }
         else:
-            # 官方 Cloud 镜像不可用，使用占位数据
-            placeholder_url = PLACEHOLDER_URL_TEMPLATE.format(
-                version=version, arch=tencent_arch
-            )
             self.logger.warning(
-                "TencentOS %s %s: 腾讯软件源暂无公开的 qcow2 Cloud 镜像，使用占位数据。"
-                "镜像发布后请更新 distribution-info.json 或重新运行 distro-scraper。"
-                "占位 URL: %s",
-                version, label, placeholder_url,
+                "TencentOS %s %s: 未找到 qcow2 镜像，目录: %s",
+                version, label, images_url,
             )
-            return label, {
-                "image_location": placeholder_url,
-                "id": f"placeholder-tencentos-{version}-{tencent_arch}",
-                "version": version,
-                "size": -1,
-            }
+            return label, {}
 
-    async def _find_latest_version(self, session: aiohttp.ClientSession) -> str:
+    async def _fetch_version(
+        self, session: aiohttp.ClientSession, version: str
+    ) -> dict | None:
         """
-        从腾讯软件源目录中查找最新的 TencentOS 版本。
+        抓取指定版本的所有架构镜像信息。
+        若所有架构均无镜像则返回 None。
         """
-        try:
-            text = await self._fetch_text(session, TENCENT_MIRROR_BASE)
-            versions = re.findall(r'href="(\d+\.\d+)/"', text)
-            if versions:
-                # 按版本号降序排列，取最新版
-                latest = sorted(versions, key=lambda v: [int(x) for x in v.split(".")])[-1]
-                self.logger.info("发现最新 TencentOS 版本: %s", latest)
-                return latest
-        except Exception as e:
-            self.logger.warning("获取 TencentOS 版本列表失败: %s", e)
-        # 回退到预设版本
-        return TENCENTOS_VERSIONS[0]
+        results = await asyncio.gather(
+            *[
+                self._fetch_image_for_arch(session, version, label)
+                for label in SUPPORTED_ARCHITECTURES
+                if label in TENCENTOS_SUPPORTED_ARCHES
+            ],
+            return_exceptions=True,
+        )
+
+        items: dict[str, dict] = {}
+        for result in results:
+            if isinstance(result, Exception):
+                self.logger.warning("获取 TencentOS %s 架构镜像失败: %s", version, result)
+            else:
+                label, data = result
+                if data:  # 只有找到镜像才加入
+                    items[label] = data
+
+        if not items:
+            return None
+
+        return {
+            "aliases": f"tencentos{version.split('.')[0]}, tlinux{version.split('.')[0]}",
+            "os": "TencentOS",
+            "release": version,
+            "release_codename": f"TencentOS Server {version}",
+            "release_title": version.split(".")[0],
+            "items": items,
+        }
 
     async def fetch(self) -> dict:
         """
-        抓取 TencentOS 最新 Cloud 镜像信息（x86_64 / arm64）。
-        若腾讯软件源暂无公开 qcow2 镜像，返回占位数据并记录警告。
+        抓取所有支持版本的 TencentOS Cloud 镜像信息。
+        返回多个版本条目（每个版本一个条目）。
         """
         async with aiohttp.ClientSession() as session:
-            version = await self._find_latest_version(session)
-
             results = await asyncio.gather(
-                *[
-                    self._fetch_image_for_arch(session, version, label)
-                    for label in SUPPORTED_ARCHITECTURES
-                    if label in TENCENTOS_SUPPORTED_ARCHES
-                ],
+                *[self._fetch_version(session, v) for v in TENCENTOS_VERSIONS],
                 return_exceptions=True,
             )
 
-            items: dict[str, dict] = {}
-            for label, result in zip(
-                [l for l in SUPPORTED_ARCHITECTURES if l in TENCENTOS_SUPPORTED_ARCHES],
-                results,
-            ):
-                if isinstance(result, Exception):
-                    self.logger.warning("获取 TencentOS %s 架构镜像失败: %s", label, result)
-                else:
-                    _, data = result
-                    items[label] = data
+        entries = {}
+        for version, result in zip(TENCENTOS_VERSIONS, results):
+            if isinstance(result, Exception):
+                self.logger.warning("获取 TencentOS %s 失败: %s", version, result)
+            elif result is not None:
+                key = f"TencentOS{version.split('.')[0]}"
+                entries[key] = result
+                self.logger.info("TencentOS %s 抓取成功", version)
+            else:
+                self.logger.warning("TencentOS %s 无可用镜像", version)
 
-            if not items:
-                raise RuntimeError("所有架构的 TencentOS 镜像均获取失败")
+        if not entries:
+            raise RuntimeError("所有版本的 TencentOS 镜像均获取失败")
 
-            return {
-                "aliases": "tencentos, tlinux",
-                "os": "TencentOS",
-                "release": version,
-                "release_codename": f"TencentOS Server {version}",
-                "release_title": version.split(".")[0],
-                "items": items,
-            }
+        # 返回多个条目
+        return entries
