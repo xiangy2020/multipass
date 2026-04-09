@@ -29,6 +29,7 @@
 #include <multipass/process/qemuimg_process_spec.h>
 #include <multipass/query.h>
 #include <multipass/rpc/multipass.grpc.pb.h>
+#include <multipass/bz_image_decoder.h>
 #include <multipass/url_downloader.h>
 #include <multipass/utils.h>
 #include <multipass/vm_image.h>
@@ -219,6 +220,11 @@ mp::VMImage mp::DefaultVMImageVault::fetch_image(const FetchType& fetch_type,
             source_image.image_path =
                 extract_image_from(source_image, monitor, save_dir.toStdString());
         }
+        else if (source_image.image_path.extension() == ".bz2")
+        {
+            source_image.image_path =
+                extract_image_from_bz2(source_image, monitor, save_dir.toStdString());
+        }
         else
         {
             source_image = image_instance_from(source_image, save_dir);
@@ -295,7 +301,7 @@ mp::VMImage mp::DefaultVMImageVault::fetch_image(const FetchType& fetch_type,
                 // Attempt to make a sane directory name based on the filename of the image
 
                 const auto image_dir_name = QString("%1-%2").arg(
-                    image_filename.section(".", 0, image_filename.endsWith(".xz") ? -3 : -2),
+                    image_filename.section(".", 0, (image_filename.endsWith(".xz") || image_filename.endsWith(".bz2")) ? -3 : -2),
                     QLocale::c().toString(last_modified, "yyyyMMdd"));
                 const auto image_dir = MP_UTILS.make_dir(images_dir, image_dir_name);
 
@@ -627,6 +633,12 @@ mp::VMImage mp::DefaultVMImageVault::download_and_prepare_source_image(
             source_image.image_path =
                 MP_IMAGE_VAULT_UTILS.extract_file(source_image.image_path, monitor, true);
         }
+        else if (source_image.image_path.extension() == ".bz2")
+        {
+            source_image.image_path =
+                MP_IMAGE_VAULT_UTILS.extract_file(source_image.image_path, monitor, true,
+                                                  mp::BzImageDecoder{});
+        }
 
         auto prepared_image = prepare(source_image);
         remove_source_images(source_image, prepared_image);
@@ -654,6 +666,20 @@ std::filesystem::path mp::DefaultVMImageVault::extract_image_from(
     const auto image_path = QDir(dest_dir).filePath(image_name);
 
     return MP_IMAGE_VAULT_UTILS.extract_file(MP_PLATFORM.qstr_to_path(image_path), monitor);
+}
+
+std::filesystem::path mp::DefaultVMImageVault::extract_image_from_bz2(
+    const VMImage& source_image,
+    const ProgressMonitor& monitor,
+    const std::filesystem::path& dest_dir)
+{
+    MP_UTILS.make_dir(dest_dir);
+    QFileInfo file_info{source_image.image_path};
+    const auto image_name = file_info.fileName().remove(".bz2");
+    const auto image_path = QDir(dest_dir).filePath(image_name);
+
+    return MP_IMAGE_VAULT_UTILS.extract_file(MP_PLATFORM.qstr_to_path(image_path), monitor,
+                                             true, mp::BzImageDecoder{});
 }
 
 mp::VMImage mp::DefaultVMImageVault::image_instance_from(const VMImage& prepared_image,

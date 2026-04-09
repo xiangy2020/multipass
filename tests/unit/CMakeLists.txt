@@ -119,6 +119,7 @@ add_executable(multipass_tests
   test_vm_mount.cpp
   test_with_mocked_bin_path.cpp
   test_xz_image_decoder.cpp
+  test_bz_image_decoder.cpp
   test_yaml_node_utils.cpp
 )
 
@@ -160,6 +161,7 @@ target_link_libraries(multipass_tests
   sshfs_mount_test
   utils_test
   xz_image_decoder
+  bz_image_decoder
   # 3rd-party
   premock
   scope_guard

@@ -12,27 +12,12 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-configure_file(
-  version.h.in
-  ${MULTIPASS_GENERATED_SOURCE_DIR}/multipass/version.h
-  @ONLY
-)
+find_package(BZip2 REQUIRED)
 
-add_subdirectory(cert)
-add_subdirectory(client)
-add_subdirectory(daemon)
-add_subdirectory(image_host)
-add_subdirectory(iso)
-add_subdirectory(logging)
-add_subdirectory(network)
-add_subdirectory(petname)
-add_subdirectory(platform)
-add_subdirectory(process)
-add_subdirectory(rpc)
-add_subdirectory(settings)
-add_subdirectory(simplestreams)
-add_subdirectory(ssh)
-add_subdirectory(sshfs_mount)
-add_subdirectory(bz_decoder)
-add_subdirectory(utils)
-add_subdirectory(xz_decoder)
+add_library(bz_image_decoder STATIC
+  bz_image_decoder.cpp)
+
+target_link_libraries(bz_image_decoder
+  BZip2::BZip2
+  fmt::fmt-header-only
+  rpc)

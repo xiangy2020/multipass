@@ -80,6 +80,9 @@ private:
     std::filesystem::path extract_image_from(const VMImage& source_image,
                                              const ProgressMonitor& monitor,
                                              const std::filesystem::path& dest_dir);
+    std::filesystem::path extract_image_from_bz2(const VMImage& source_image,
+                                                  const ProgressMonitor& monitor,
+                                                  const std::filesystem::path& dest_dir);
     std::optional<QFuture<VMImage>> get_image_future(const std::string& id);
     VMImage finalize_image_records(const Query& query,
                                    const VMImage& prepared_image,

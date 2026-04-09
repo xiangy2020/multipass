@@ -39,6 +39,7 @@ function(add_target TARGET_NAME)
     ssh
     yaml-cpp::yaml-cpp
     xz_image_decoder
+    bz_image_decoder
     Qt6::Core
     Boost::json
     PRIVATE semver::semver
