@@ -76,15 +76,26 @@ QStringList mp::QemuPlatformMacOS::vm_platform_args(const VirtualMachineDescript
     QStringList qemu_args;
     // clang-format off
 
+    // 若镜像元数据指定了 cpu_type（如 cortex-a72），则使用软件模拟 CPU，不启用 HVF 加速。
+    // 这是因为部分内核（如 TencentOS 2.4 aarch64）使用 64KB page granule 编译，
+    // 而 Apple Silicon 只支持 4KB/16KB granule，-cpu host 会导致启动失败。
+    const bool use_custom_cpu = !vm_desc.cpu_type.empty();
+    const QString cpu_arg = use_custom_cpu
+                                ? QString::fromStdString(vm_desc.cpu_type)
+                                : QStringLiteral("host");
+
+    qemu_args << common_args;
+
+    if (!use_custom_cpu)
+        qemu_args << "-accel" << "hvf";
+
     qemu_args
-        << common_args << "-accel"
-        << "hvf"
         << "-drive"
         << QString("file=%1/../Resources/qemu/edk2-%2-code.fd,if=pflash,format=raw,readonly=on")
                .arg(QCoreApplication::applicationDirPath())
                .arg(host_arch)
         << "-cpu"
-        << "host"
+        << cpu_arg
         // Set up the network related args
         << "-nic"
         << QString::fromStdString(fmt::format("vmnet-shared,start-address={}.{},end-address={}.{}"

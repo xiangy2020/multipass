@@ -41,6 +41,7 @@ struct VMImageInfo
     QString version;
     int64_t size;
     bool verify;
+    QString cpu_type; // 可选，指定 QEMU CPU 类型（如 cortex-a72），为空则使用平台默认值
 
     friend inline bool operator==(const VMImageInfo& a, const VMImageInfo& b) = default;
 };
@@ -73,6 +74,7 @@ inline VMImageInfo tag_invoke(const boost::json::value_to_tag<VMImageInfo>&,
             "",
             value_to<QString>(arch_json->at("version")),
             lookup_or<int64_t>(*arch_json, "size", -1LL),
-            true};
+            true,
+            lookup_or<QString>(*arch_json, "cpu_type", QString{})};
 }
 } // namespace multipass

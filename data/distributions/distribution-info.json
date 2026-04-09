@@ -105,14 +105,15 @@
         "aliases": "tlinux2, tencentos2, tlinux2.4, tencentos2.4",
         "items": {
             "arm64": {
-                "id": "sha256:placeholder-tencentos-2.4-aarch64",
-                "image_location": "https://mirrors.tencent.com/tlinux/2.4/images/aarch64/qcow2/tlinux-aarch64-kvm_guest-v2.4-tkernel4.20220518.qcow2.bz2",
+                "id": "sha256:e9c201784e85cb2f3d4aadc713b2cd89521895f901a2061578a7173c3b879e21",
+                "image_location": "http://mirrors.tencent.com/tlinux/2.4/images/aarch64/qcow2/tlinux-aarch64-kvm_guest-v2.4-tkernel4.20220518.qcow2.bz2",
                 "size": -1,
-                "version": "2.4"
+                "version": "2.4",
+                "cpu_type": "cortex-a72"
             },
             "x86_64": {
                 "id": "sha256:placeholder-tencentos-2.4-x86_64",
-                "image_location": "https://mirrors.tencent.com/tlinux/2.4/images/x86_64/qcow2/TencentOS-Server-2.4-5.4.119-19-0009.11-20221101-x86_64.qcow2.bz2",
+                "image_location": "http://mirrors.tencent.com/tlinux/2.4/images/x86_64/qcow2/TencentOS-Server-2.4-5.4.119-19-0009.11-20221101-x86_64.qcow2.bz2",
                 "size": -1,
                 "version": "2.4"
             }
@@ -127,13 +128,13 @@
         "items": {
             "arm64": {
                 "id": "sha256:bdcdd12b66ce3ff36f0a050e22126078f18fa55829faf75b244c16215cdfb3d5",
-                "image_location": "https://mirrors.tencent.com/tlinux/3.3/images/qcow2/aarch64/TencentOS-Server-GenericCloud-3.3-20260325.0.aarch64.qcow2",
+                "image_location": "http://mirrors.tencent.com/tlinux/3.3/images/qcow2/aarch64/TencentOS-Server-GenericCloud-3.3-20260325.0.aarch64.qcow2",
                 "size": 2228224000,
                 "version": "20260325"
             },
             "x86_64": {
                 "id": "sha256:0df132f62d41426269ed99ce55efa4761038c3413678d10b53dd1eed0fbfb7b0",
-                "image_location": "https://mirrors.tencent.com/tlinux/3.3/images/qcow2/x86_64/TencentOS-Server-GenericCloud-3.3-20260325.0.x86_64.qcow2",
+                "image_location": "http://mirrors.tencent.com/tlinux/3.3/images/qcow2/x86_64/TencentOS-Server-GenericCloud-3.3-20260325.0.x86_64.qcow2",
                 "size": 2278948864,
                 "version": "20260325"
             }
@@ -148,13 +149,13 @@
         "items": {
             "arm64": {
                 "id": "sha256:3bdd9bd938c8c10c2652cac7b69dd83025e1e33e4e607eb38eeb0d524084759f",
-                "image_location": "https://mirrors.tencent.com/tlinux/4.4/images/qcow2/aarch64/TencentOS-Server-GenericCloud-4.4-20260126.0.aarch64.qcow2",
+                "image_location": "http://mirrors.tencent.com/tlinux/4.4/images/qcow2/aarch64/TencentOS-Server-GenericCloud-4.4-20260126.0.aarch64.qcow2",
                 "size": 735641600,
                 "version": "20260126"
             },
             "x86_64": {
                 "id": "sha256:ae1357e75a80fae399d81b701f7f606528549f9e4d24cf77cdbb68bafdc9f380",
-                "image_location": "https://mirrors.tencent.com/tlinux/4.4/images/qcow2/x86_64/TencentOS-Server-GenericCloud-4.4-20260126.0.x86_64.qcow2",
+                "image_location": "http://mirrors.tencent.com/tlinux/4.4/images/qcow2/x86_64/TencentOS-Server-GenericCloud-4.4-20260126.0.x86_64.qcow2",
                 "size": 829095936,
                 "version": "20260126"
             }

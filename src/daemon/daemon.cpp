@@ -1430,6 +1430,7 @@ mp::Daemon::Daemon(std::unique_ptr<const DaemonConfig> the_config)
                                               spec.extra_interfaces,
                                               spec.extra_disks,
                                               spec.ssh_username,
+                                              {}, // cpu_type: 由启动时从镜像元数据获取
                                               vm_image,
                                               cloud_init_iso,
                                               {},
@@ -3282,6 +3283,7 @@ void mp::Daemon::create_vm(const CreateRequest* request,
                 {}, // extra_interfaces
                 {}, // extra_disks
                 config->ssh_username,
+                {}, // cpu_type: 由后续从镜像元数据获取
                 VMImage{},
                 "",
                 YAML::Node{},
@@ -3383,6 +3385,17 @@ void mp::Daemon::create_vm(const CreateRequest* request,
                                                     /*use_v1=*/rhel_based);
 
             vm_desc.image = vm_image;
+
+            // 从镜像元数据中获取 cpu_type（如 cortex-a72），用于特殊内核的 QEMU CPU 配置
+            for (const auto& image_host : config->image_hosts)
+            {
+                if (auto image_info = image_host->info_for(query))
+                {
+                    vm_desc.cpu_type = image_info->cpu_type.toStdString();
+                    break;
+                }
+            }
+
             config->factory->configure(vm_desc);
             config->factory->prepare_instance_image(vm_image, vm_desc);
 

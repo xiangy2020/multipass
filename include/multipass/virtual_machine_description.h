@@ -45,6 +45,7 @@ public:
     std::vector<NetworkInterface> extra_interfaces;
     std::vector<ExtraDisk> extra_disks; // 额外数据磁盘列表
     std::string ssh_username;
+    std::string cpu_type; // 可选，指定 QEMU CPU 类型（如 cortex-a72），为空则使用平台默认值
     VMImage image;
     Path cloud_init_iso;
     YAML::Node meta_data_config;

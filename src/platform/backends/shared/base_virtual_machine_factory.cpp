@@ -137,6 +137,7 @@ mp::VirtualMachine::UPtr mp::BaseVirtualMachineFactory::clone_bare_vm(
                                                dest_spec.extra_interfaces,
                                                dest_extra_disks,
                                                dest_spec.ssh_username,
+                                               {}, // cpu_type: 由启动时从镜像元数据获取
                                                dest_image,
                                                cloud_init_path.string().c_str(),
                                                {},
