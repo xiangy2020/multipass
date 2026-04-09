@@ -1,5 +1,58 @@
 # Changelog
 
+## [Unreleased] - 2026-04-09（新增 iso-to-qcow2 工具）
+
+### 新增
+
+#### ISO 镜像转 qcow2 Cloud Image 工具（`tools/iso-to-qcow2/`）
+
+新增基于 **Packer + QEMU** 的自动化工具，将普通 Linux ISO 安装镜像转换为内置 cloud-init 的 qcow2 格式 cloud image，可直接被 `multipass launch file://...` 使用。
+
+**主要特性：**
+
+- **全自动化构建**：通过 Kickstart 无人值守安装，无需人工干预
+- **跨平台支持**：自动检测 macOS（HVF 加速）和 Linux（KVM 加速）
+- **cloud-init 内置**：自动安装并启用 cloud-init，支持 Multipass SSH 公钥注入
+- **镜像清理**：自动清理 machine-id、SSH host keys、网络配置，确保多实例复用
+- **SHA256 校验**：构建完成后自动生成 SHA256 校验文件
+- **腾讯软件源支持**：可选配置 `mirrors.tencent.com` 作为 yum 源（国内网络推荐）
+- **可扩展框架**：新增发行版只需添加 Kickstart 文件和 Packer 模板
+
+**支持的发行版：**
+
+| 发行版 | `--distro` 值 | 说明 |
+|--------|--------------|------|
+| CentOS 7 | `centos7` | 标准 CentOS 7 Minimal |
+| TencentOS Server | `tlinux` | 支持 2.x 和 3.x，自动配置腾讯软件源 |
+
+**使用示例：**
+
+```bash
+cd tools/iso-to-qcow2
+
+# 构建 CentOS 7 qcow2 镜像
+./build.sh --distro centos7 --iso /path/to/CentOS-7-x86_64-Minimal-2009.iso
+
+# 构建 TencentOS Server qcow2 镜像
+./build.sh --distro tlinux --iso /path/to/TencentOS-Server-3.1-x86_64.iso
+
+# 使用构建产物启动 Multipass 实例
+multipass launch file://$(pwd)/output/centos7/centos7-cloud.qcow2 --name my-centos7
+```
+
+**文件清单：**
+
+- `tools/iso-to-qcow2/build.sh`：入口脚本
+- `tools/iso-to-qcow2/http/centos7-ks.cfg`：CentOS 7 Kickstart 配置
+- `tools/iso-to-qcow2/http/tlinux-ks.cfg`：TencentOS Kickstart 配置
+- `tools/iso-to-qcow2/templates/centos7.pkr.hcl`：CentOS 7 Packer 模板
+- `tools/iso-to-qcow2/templates/tlinux.pkr.hcl`：TencentOS Packer 模板
+- `tools/iso-to-qcow2/scripts/install-cloud-init.sh`：cloud-init 安装脚本
+- `tools/iso-to-qcow2/scripts/cleanup.sh`：镜像清理脚本
+- `tools/iso-to-qcow2/README.md`：完整使用文档
+
+---
+
 ## [Unreleased] - 2026-04-07（修复 CentOS 8 启动慢问题）
 
 ### 修复
